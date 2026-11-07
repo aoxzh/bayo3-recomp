@@ -153,18 +153,18 @@ flowchart LR
 ## FAQ
 
 ### Is Bayonetta 3 Recomp an emulator?
-No. It is a static recompiler. The game's AArch64 code is translated to C++ before the build, and the resulting program runs natively on the host CPU. It does not interpret guest instructions or emulate a Switch at run time. Graphics go through Vulkan; the Horizon system services and the NVN API are reimplemented by the runtime.
+No. It is a static recompiler. The game's AArch64 code is translated to C++ before the build, and the resulting program runs natively on the host CPU. It does not interpret guest instructions or emulate a Switch at run time. Unlike a Switch emulator, it does not load the original NSO or emulate Switch hardware; it translates the guest program ahead of time. Graphics go through Vulkan; the Horizon system services and the NVN API are reimplemented by the runtime.
 
 ### Can I play Bayonetta 3 on PC, Steam Deck or Android?
 Yes, with your own legally obtained copy of Bayonetta 3 version 1.2.0. The repository contains source code and tools, not the game. You generate the C++ and shaders on your machine, then build for Windows, Linux / Steam Deck or Android. See the [playing guide](docs/PLAYING.md).
 
 ### Does the repository include the game, keys, saves or prebuilt binaries?
-No. It ships no game program, generated C++, game shaders, game art, text or saves, and no prebuilt game downloads. It also does not include keys or firmware.
+No. It ships no game program, generated C++, game shaders, game art, text or saves, and no prebuilt game downloads. It also does not include keys, firmware or a BIOS.
 
 ### Which game version is supported?
 Bayonetta 3 version 1.2.0 only. Preparation validates the ExeFS/RomFS identity and stops if the version or module hashes do not match. Other versions are not supported.
 
-### What do I need to build it?
+### What are the system requirements?
 A 64-bit host with CMake 3.25+, a C++20 compiler, Python and the pinned dependencies, a Vulkan 1.3 driver, and the platform toolchain. Windows, Linux / Steam Deck and Android each have their own setup; the [build guide](docs/BUILD.md) lists the details.
 
 ### Does it support 4K, ultrawide or 120 fps?
