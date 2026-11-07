@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use or cite this project, please use the metadata below."
+title: "Bayonetta 3 Recomp"
+type: software
+version: "0.1.0"
+date-released: "2026-11-08"
+url: "https://github.com/aoxzh/bayo3-recomp"
+repository-code: "https://github.com/aoxzh/bayo3-recomp"
+license: "GPL-3.0-or-later"
+abstract: >-
+  Bayonetta 3 Recomp is an open-source static recompiler and
+  Horizon/NVN Vulkan runtime that runs Bayonetta 3 for Nintendo Switch version
+  1.2.0 natively on Windows, Linux / Steam Deck and Android. It is not an
+  emulator and does not include game files.
+keywords:
+  - Bayonetta 3
+  - static recompilation
+  - recompiler
+  - Vulkan
+  - NVN
+  - Nintendo Switch
+  - Windows
+  - Linux
+  - Steam Deck
+  - Android
+authors:
+  - name: "Bayonetta 3 Recomp contributors"

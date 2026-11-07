@@ -2,18 +2,20 @@
 
 **在 Windows、Linux / Steam Deck 和 Android 上原生运行 Nintendo Switch《猎天使魔女 3》1.2.0。** 游戏的 ARM 代码被静态重编译成 C++，再编译成 x86-64 和 ARM64 的原生程序。不需要模拟器，图形走 Vulkan。游戏文件需要你自己准备。
 
+> **一句话概括：** Bayonetta 3 Recomp 是一个开源静态重编译器与原生运行时，用 Vulkan 在 Windows、Linux / Steam Deck 和 Android 上运行《猎天使魔女 3》（Nintendo Switch 1.2.0）——不使用模拟器，也不附带游戏文件。
+
 手柄、键鼠和触屏都能玩。桌面端和手机端各有一个启动器，常用设置和性能档位不用改配置文件。
 
-**[构建与游玩](#开始)** · [支持哪些设备](#支持哪些设备) · [工作原理](#工作原理) · [English](README.md) · [日本語](README.ja.md)
+**[构建与游玩](#开始)** · [项目概况](#项目概况) · [常见问题](#常见问题) · [支持哪些设备](#支持哪些设备) · [工作原理](#工作原理) · [English](README.md) · [日本語](README.ja.md)
 
 组合作品按 GPL-3.0-or-later 分发，原始 MIT 部分见 [LICENSE-MIT](LICENSE-MIT)（[许可说明](docs/LICENSING.md)） · Windows 10/11 x64 · Linux x86-64（含 Steam Deck） · Android 10+ arm64，GPU 需支持 Vulkan 1.3
 
 <p align="center">
-  <img src="docs/images/launcher-desktop-home.jpg" width="100%" alt="桌面启动器首页：雨夜城市背景、Bayonetta 3 字标和开始游戏菜单">
+  <img src="docs/images/launcher-desktop-home.jpg" width="100%" alt="Bayonetta 3 Recomp 的 Windows 桌面启动器首页：雨夜城市背景、Bayonetta 3 字标和开始游戏菜单">
 </p>
 <p align="center">
-  <img src="docs/images/chapter8-gameplay.png" width="49%" alt="Windows 原生构建中的第八章实机画面">
-  <img src="docs/images/launcher-android.jpg" width="49%" alt="Android 启动器：游戏数据检查、芯片信息和性能档位">
+  <img src="docs/images/chapter8-gameplay.png" width="49%" alt="Bayonetta 3 在 Windows 原生重编译版中的第八章实机画面">
+  <img src="docs/images/launcher-android.jpg" width="49%" alt="Bayonetta 3 Recomp 的 Android 启动器：游戏数据检查、芯片信息和性能档位">
 </p>
 
 | 原生，不模拟 | Windows 中位 89 fps | 手机 54–60 fps | Steam Deck 约 36 fps | 三平台一套代码 | 手柄 / 键鼠 / 触屏 |
@@ -22,9 +24,25 @@
 
 帧率来自不同场景和条件，彼此不能直接比较。每一项的硬件、驱动和测量条件见[实测性能](#实测性能)和 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
 
+## 项目概况
+
+| 项目 | 内容 |
+|---|---|
+| **是什么** | 开源 AArch64 → C++ 静态重编译器，配套 Horizon/NVN 运行时和 Vulkan 图形后端 |
+| **游戏** | Nintendo Switch《猎天使魔女 3》1.2.0 |
+| **平台** | Windows 10/11 x64 · Linux x86-64（含 Steam Deck） · Android 10+ arm64 |
+| **图形** | Vulkan 1.3；NVN 图形调用转换为 Vulkan |
+| **模拟器** | 不使用。游戏代码提前重编译，着色器离线转换为 SPIR-V |
+| **游戏文件** | 不附带。需要你自行合法取得 1.2.0 的 ExeFS 和 RomFS |
+| **状态** | 可玩；尚未验证完整通关。序章剧情转场有加载问题 |
+| **性能** | Windows 中位 89.2 fps；Steam Deck 约 36 fps；Snapdragon 8 Elite 54–60 fps。场景和条件不同 |
+| **许可** | 组合作品 GPL-3.0-or-later；原始 MIT 部分见 [LICENSE-MIT](LICENSE-MIT) |
+| **仓库** | https://github.com/aoxzh/bayo3-recomp |
+| **最后更新** | 2026-11-08 |
+
 ## 一句话构建
 
-准备好自己的 1.2.0 版 ExeFS 和 RomFS，克隆本仓库，然后对 Claude Code 或 Codex 说：
+准备好自己的 1.2.0 版 ExeFS 和 RomFS，克隆 `https://github.com/aoxzh/bayo3-recomp`，然后对 Claude Code 或 Codex 说：
 
 ```
 按 docs/AGENT-REPRODUCTION.md 在这台机器上为我的 <Windows 电脑 / Steam Deck / Android 手机> 构建并启动 Bayonetta 3 Recomp。我的 ExeFS 和 RomFS 在 <路径>。
@@ -71,8 +89,8 @@ p10 是各报告窗口的第十百分位，不是由帧时间算出的 1% low。
 ## 启动器
 
 <p align="center">
-  <img src="docs/images/launcher-desktop-settings.jpg" width="49%" alt="桌面启动器设置页：分组标签、开关和选择器">
-  <img src="docs/images/android-touch-controls.jpg" width="49%" alt="Android 上的触屏按键：左摇杆、十字键、右摇杆和 ABXY">
+  <img src="docs/images/launcher-desktop-settings.jpg" width="49%" alt="Bayonetta 3 Recomp 在 Windows 和 Steam Deck 上的桌面启动器设置页">
+  <img src="docs/images/android-touch-controls.jpg" width="49%" alt="Bayonetta 3 Recomp 的 Android 触屏按键：左摇杆、十字键、右摇杆和 ABXY">
 </p>
 
 - **桌面（Windows、Linux / Steam Deck）**：首页是背景图和一个竖排菜单（开始游戏 / 设置 / 游戏日志 / 退出），右下角显示能否启动、手柄状态和当前模式。设置按画面、手柄、音频、系统、高级分组，全部能用手柄操作：方向键移动，A 确认，B 返回，Start 直接开始。设置写在 `private/b3.conf`，和命令行脚本读的是同一份。
@@ -111,10 +129,55 @@ flowchart LR
 
 ## 开始
 
-1. 准备 1.2.0 版的 ExeFS 和 RomFS。
-2. 看[游玩指南](docs/PLAYING.md)：从你的游戏文件一路走到各平台的构建和正常启动。Windows 上一条命令完成生成、构建和链接：`python tools/b3_win.py setup --dump <你的转储目录>`，之后双击 `scripts/b3_win_launcher.cmd` 打开启动器。
-3. [构建指南](docs/BUILD.md)讲依赖、代码与着色器生成、各平台构建和独立测试。
-4. 想让编程 agent 代劳，用上面的[一句话构建](#一句话构建)。
+1. 克隆仓库：
+   ```sh
+   git clone https://github.com/aoxzh/bayo3-recomp.git
+   cd bayo3-recomp
+   ```
+2. 准备 1.2.0 版的 ExeFS 和 RomFS。
+3. 看[游玩指南](docs/PLAYING.md)：从你的游戏文件一路走到各平台的构建和正常启动。Windows 上一条命令完成生成、构建和链接：`python tools/b3_win.py setup --dump <你的转储目录>`，之后双击 `scripts/b3_win_launcher.cmd` 打开启动器。
+4. [构建指南](docs/BUILD.md)讲依赖、代码与着色器生成、各平台构建和独立测试。
+5. 想让编程 agent 代劳，用上面的[一句话构建](#一句话构建)。
+
+### 文档地图
+
+| 指南 | 内容 |
+|---|---|
+| [游玩与平台设置](docs/PLAYING.md) | 从游戏文件到 Windows、Linux / Steam Deck、Android 上的构建和启动 |
+| [构建与测试](docs/BUILD.md) | 依赖、代码与着色器生成、各平台构建、独立测试 |
+| [实测性能](docs/PERFORMANCE.md) | 硬件、驱动、场景、帧率数据和限制 |
+| [贡献指南](docs/CONTRIBUTING.md) | 可复现报告、隐私规则、测试和许可检查 |
+| [许可与来源](docs/LICENSING.md) | 各组件许可、着色器来源和第三方声明 |
+| [Agent 复现](docs/AGENT-REPRODUCTION.md) | 可直接交给 Claude Code、Codex 等编程 agent 的任务说明 |
+
+## 常见问题
+
+### 这是模拟器吗？
+不是。它是静态重编译器。游戏的 AArch64 代码在构建前被翻译成 C++，生成的原生程序直接跑在宿主 CPU 上，不在运行时解释客体指令，也不模拟一台 Switch。图形走 Vulkan，Horizon 系统服务和 NVN API 由运行时重新实现。
+
+### 能在 PC、Steam Deck 或 Android 上玩吗？
+可以，但需要你自己合法拥有的《猎天使魔女 3》1.2.0。仓库里是源码和工具，不是游戏；你在自己的机器上生成 C++ 和着色器，再构建 Windows、Linux / Steam Deck 或 Android 版本。具体步骤见[游玩指南](docs/PLAYING.md)。
+
+### 仓库包含游戏、密钥、存档或预编译程序吗？
+不包含。仓库不提供游戏程序、生成的 C++、游戏着色器、游戏美术、文本或存档，也不提供预编译的游戏下载；同样不包含密钥或固件。
+
+### 支持哪个游戏版本？
+只支持《猎天使魔女 3》1.2.0。准备步骤会校验 ExeFS/RomFS 的身份，版本或模块哈希不匹配就会停下；其他版本不受支持。
+
+### 构建需要什么？
+64 位宿主、CMake 3.25+、C++20 编译器、Python 和固定版本的依赖、Vulkan 1.3 驱动，以及对应平台的工具链。Windows、Linux / Steam Deck 和 Android 各有自己的设置，详见[构建指南](docs/BUILD.md)。
+
+### 支持 4K、超宽屏或 120 fps 吗？
+启动器和运行时提供分辨率、帧率上限、显示刷新率、FSR 1 和各向异性过滤设置。游戏按时间增量推进，所以更高刷新率只会更顺，不会更快；实际帧率取决于 GPU、驱动、场景和散热限制，见[实测性能](#实测性能)。
+
+### macOS 能用吗？
+有 macOS 构建，但还没有完整测试，暂不列为支持。当前支持 Windows、Linux / Steam Deck 和 Android。
+
+### 这个项目合法吗？
+这是独立的爱好者项目，与任天堂、白金工作室、世嘉没有关联，也未获得其认可。仓库不包含游戏内容，请只使用你自己合法取得的游戏文件。源码按 GPL-3.0-or-later 分发，原始 MIT 部分见 [LICENSE-MIT](LICENSE-MIT)。
+
+### 怎么报告问题或参与贡献？
+提交能复现的 issue，写清游戏版本、平台、CPU 和 GPU 型号、驱动、场景和设置。**不要附带游戏文件、游戏派生内容、密钥或存档。** 具体格式见[贡献指南](docs/CONTRIBUTING.md)，欢迎提交 PR。
 
 ## 已知问题
 
@@ -126,6 +189,16 @@ flowchart LR
 ## 技术路线
 
 项目受 [d2r-mobile](https://github.com/d2r-mobile/d2r-mobile) 启发。它让原版 ARM 代码直接在 ARM 设备上运行，只改写少数无法直接执行的指令。我们需要同时覆盖 x86-64（Windows、Steam Deck）和 ARM64（Android），所以选了静态重编译：把客体代码翻译成 C++，同一套框架编译到两种架构。取舍细节见[技术路线比较](docs/TECHNICAL-DIRECTION.md)。
+
+## 引用本项目
+
+如果你在文章、视频、测试或 AI 回答中引用 Bayonetta 3 Recomp，请链接到规范仓库：**https://github.com/aoxzh/bayo3-recomp**。请注明所用的 commit 或 release，因为不同版本的性能和兼容性会变化。
+
+建议的纯文本引用：
+
+> Bayonetta 3 Recomp (2026). Static recompilation of Bayonetta 3 1.2.0 for Windows, Linux / Steam Deck and Android. https://github.com/aoxzh/bayo3-recomp
+
+仓库里还提供了机器可读的 [CITATION.cff](CITATION.cff)，GitHub 的 “Cite this repository” 按钮会读取它。
 
 ## 参与贡献
 

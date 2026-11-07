@@ -2,18 +2,20 @@
 
 **Nintendo Switch 版『ベヨネッタ3』バージョン 1.2.0 を、Windows、Linux / Steam Deck、Android でネイティブに動かします。** ゲームの ARM コードを C++ に静的リコンパイルし、x86-64 と ARM64 のネイティブプログラムとしてビルドします。エミュレーターは使わず、描画は Vulkan です。ゲームファイルはご自身で用意してください。
 
+> **一文で言うと：** Bayonetta 3 Recomp は、Vulkan を使って Windows、Linux / Steam Deck、Android で『ベヨネッタ3』（Nintendo Switch 1.2.0）を動かすオープンソースの静的リコンパイラー兼ネイティブランタイムです。エミュレーターではなく、ゲームファイルも含みません。
+
 コントローラー、キーボードとマウス、タッチのどれでも遊べます。デスクトップとスマートフォンにそれぞれランチャーがあり、よく使う設定やパフォーマンスのプロファイルは設定ファイルを編集せずに変えられます。
 
-**[ビルドとプレイ](#はじめに)** · [対応デバイス](#対応デバイス) · [仕組み](#仕組み) · [简体中文](README.zh-CN.md) · [English](README.md)
+**[ビルドとプレイ](#はじめに)** · [プロジェクト概要](#プロジェクト概要) · [よくある質問](#よくある質問) · [対応デバイス](#対応デバイス) · [仕組み](#仕組み) · [简体中文](README.zh-CN.md) · [English](README.md)
 
 組み合わせた作品は GPL-3.0-or-later で、元の MIT 部分は [LICENSE-MIT](LICENSE-MIT)（[ライセンス](docs/LICENSING.md)） · Windows 10/11 x64 · Linux x86-64（Steam Deck を含む） · Android 10 以降の arm64、Vulkan 1.3 対応 GPU
 
 <p align="center">
-  <img src="docs/images/launcher-desktop-home.jpg" width="100%" alt="デスクトップランチャーのホーム画面：雨の夜の街、Bayonetta 3 のロゴ、ゲーム開始メニュー">
+  <img src="docs/images/launcher-desktop-home.jpg" width="100%" alt="Bayonetta 3 Recomp の Windows デスクトップランチャー：雨の夜の街、Bayonetta 3 のロゴ、ゲーム開始メニュー">
 </p>
 <p align="center">
-  <img src="docs/images/chapter8-gameplay.png" width="49%" alt="Windows ネイティブビルドでの第8章のプレイ画面">
-  <img src="docs/images/launcher-android.jpg" width="49%" alt="Android ランチャー：ゲームデータの確認、チップ情報、パフォーマンスプロファイル">
+  <img src="docs/images/chapter8-gameplay.png" width="49%" alt="Bayonetta 3 の Windows ネイティブリコンパイル版での第8章プレイ画面">
+  <img src="docs/images/launcher-android.jpg" width="49%" alt="Bayonetta 3 Recomp の Android ランチャー：ゲームデータの確認、チップ情報、パフォーマンスプロファイル">
 </p>
 
 | エミュレーションなし | Windows 中央値 89 fps | スマホ 54–60 fps | Steam Deck 約 36 fps | 3 プラットフォームで 1 つのコード | パッド / キーマウ / タッチ |
@@ -22,9 +24,25 @@
 
 これらは場面も条件も異なり、そのまま比べることはできません。それぞれのハードウェア、ドライバー、測定条件は[実測パフォーマンス](#実測パフォーマンス)と [docs/PERFORMANCE.md](docs/PERFORMANCE.md) にあります。
 
+## プロジェクト概要
+
+| 項目 | 内容 |
+|---|---|
+| **概要** | オープンソースの AArch64 → C++ 静的リコンパイラー、Horizon/NVN ランタイム、Vulkan グラフィックスバックエンド |
+| **ゲーム** | Nintendo Switch『ベヨネッタ3』1.2.0 |
+| **対応プラットフォーム** | Windows 10/11 x64 · Linux x86-64（Steam Deck を含む） · Android 10 以降の arm64 |
+| **グラフィックス** | Vulkan 1.3。NVN のグラフィックス呼び出しを Vulkan に変換 |
+| **エミュレーション** | なし。ゲームコードは事前にリコンパイルし、シェーダーはオフラインで SPIR-V に変換 |
+| **ゲームファイル** | 含みません。ご自身で正規に入手した 1.2.0 の ExeFS と RomFS が必要です |
+| **状態** | プレイ可能。クリアまでは未確認。プロローグのストーリー切り替えに読み込み問題あり |
+| **性能** | Windows 中央値 89.2 fps、Steam Deck 約 36 fps、Snapdragon 8 Elite 54–60 fps。場面と条件により異なります |
+| **ライセンス** | 組み合わせた作品は GPL-3.0-or-later、元の MIT 部分は [LICENSE-MIT](LICENSE-MIT) |
+| **リポジトリ** | https://github.com/aoxzh/bayo3-recomp |
+| **最終更新** | 2026-11-08 |
+
 ## ひとことでビルド
 
-バージョン 1.2.0 の ExeFS と RomFS を用意し、このリポジトリをクローンして、Claude Code か Codex にこう伝えてください。
+バージョン 1.2.0 の ExeFS と RomFS を用意し、`https://github.com/aoxzh/bayo3-recomp` をクローンして、Claude Code か Codex にこう伝えてください。
 
 ```
 docs/AGENT-REPRODUCTION.md に従って、このマシンで <Windows PC / Steam Deck / Android スマホ> 向けに Bayonetta 3 Recomp をビルドして起動して。ExeFS と RomFS は <パス> にある。
@@ -71,8 +89,8 @@ p10 は報告区間の 10 パーセンタイルで、フレーム時間から求
 ## ランチャー
 
 <p align="center">
-  <img src="docs/images/launcher-desktop-settings.jpg" width="49%" alt="デスクトップランチャーの設定画面：グループのタブ、スイッチ、セレクター">
-  <img src="docs/images/android-touch-controls.jpg" width="49%" alt="Android のタッチ操作：左スティック、十字キー、右スティック、ABXY">
+  <img src="docs/images/launcher-desktop-settings.jpg" width="49%" alt="Bayonetta 3 Recomp の Windows / Steam Deck デスクトップランチャー設定画面">
+  <img src="docs/images/android-touch-controls.jpg" width="49%" alt="Bayonetta 3 Recomp の Android タッチ操作：左スティック、十字キー、右スティック、ABXY">
 </p>
 
 - **デスクトップ（Windows、Linux / Steam Deck）**：ホーム画面は背景アートと縦のメニュー（ゲーム開始 / 設定 / ゲームログ / 終了）で、右下に起動できるかどうか、コントローラー、現在のモードが出ます。設定は画面、コントローラー、オーディオ、システム、詳細に分かれ、すべてパッドで操作できます。十字キーで移動、A で決定、B で戻る、Start ですぐ開始です。設定はコマンドラインのスクリプトと同じ `private/b3.conf` に保存されます。
@@ -111,10 +129,55 @@ flowchart LR
 
 ## はじめに
 
-1. バージョン 1.2.0 の ExeFS と RomFS を用意します。
-2. [プレイガイド](docs/PLAYING.md)を読みます。ゲームファイルから各プラットフォームでのビルドと通常起動までを説明しています。Windows では 1 つのコマンドで生成、ビルド、リンクまで終わります：`python tools/b3_win.py setup --dump <ダンプのフォルダー>`。そのあと `scripts/b3_win_launcher.cmd` をダブルクリックするとランチャーが開きます。
-3. [ビルドガイド](docs/BUILD.md)では、依存関係、コードとシェーダーの生成、プラットフォームごとのビルド、単体のテストを説明しています。
-4. コーディングエージェントに任せるなら、上の[ひとことでビルド](#ひとことでビルド)を使ってください。
+1. リポジトリをクローンします：
+   ```sh
+   git clone https://github.com/aoxzh/bayo3-recomp.git
+   cd bayo3-recomp
+   ```
+2. バージョン 1.2.0 の ExeFS と RomFS を用意します。
+3. [プレイガイド](docs/PLAYING.md)を読みます。ゲームファイルから各プラットフォームでのビルドと通常起動までを説明しています。Windows では 1 つのコマンドで生成、ビルド、リンクまで終わります：`python tools/b3_win.py setup --dump <ダンプのフォルダー>`。そのあと `scripts/b3_win_launcher.cmd` をダブルクリックするとランチャーが開きます。
+4. [ビルドガイド](docs/BUILD.md)では、依存関係、コードとシェーダーの生成、プラットフォームごとのビルド、単体のテストを説明しています。
+5. コーディングエージェントに任せるなら、上の[ひとことでビルド](#ひとことでビルド)を使ってください。
+
+### ドキュメントマップ
+
+| ガイド | 内容 |
+|---|---|
+| [プレイとプラットフォーム設定](docs/PLAYING.md) | ゲームファイルから Windows、Linux / Steam Deck、Android でのビルドと起動まで |
+| [ビルドとテスト](docs/BUILD.md) | 依存関係、コードとシェーダーの生成、プラットフォーム別ビルド、単体テスト |
+| [実測パフォーマンス](docs/PERFORMANCE.md) | ハードウェア、ドライバー、場面、フレームレートデータと制限 |
+| [コントリビューション](docs/CONTRIBUTING.md) | 再現可能な報告、プライバシー規則、テスト、ライセンス確認 |
+| [ライセンスと出所](docs/LICENSING.md) | コンポーネント別ライセンス、シェーダーの出所、第三者告知 |
+| [エージェント向け再現手順](docs/AGENT-REPRODUCTION.md) | Claude Code、Codex などのコーディングエージェントに渡せるタスク |
+
+## よくある質問
+
+### これはエミュレーターですか？
+いいえ。静的リコンパイラーです。ゲームの AArch64 コードをビルド前に C++ へ変換し、できたネイティブプログラムをホスト CPU で直接動かします。実行時にゲスト命令を解釈したり、Switch をエミュレートしたりはしません。描画は Vulkan で、Horizon のシステムサービスと NVN API はランタイムが実装し直しています。
+
+### PC、Steam Deck、Android で遊べますか？
+はい。ただし、ご自身で正規に入手した『ベヨネッタ3』1.2.0 が必要です。リポジトリにあるのはソースコードとツールで、ゲーム本体ではありません。ご自身のマシンで C++ とシェーダーを生成し、Windows、Linux / Steam Deck、Android 向けにビルドします。手順は[プレイガイド](docs/PLAYING.md)にあります。
+
+### リポジトリにゲーム、鍵、セーブ、ビルド済みバイナリは含まれますか？
+いいえ。ゲームのプログラム、生成された C++、ゲームシェーダー、ゲームアート、テキスト、セーブは含みません。ビルド済みのゲーム配布もありません。鍵やファームウェアも含みません。
+
+### 対応しているゲームのバージョンは？
+『ベヨネッタ3』1.2.0 のみです。準備時に ExeFS/RomFS の同一性を確認し、バージョンやモジュールのハッシュが一致しなければ停止します。他のバージョンはサポートしません。
+
+### ビルドに必要なものは？
+64 ビットのホスト、CMake 3.25 以上、C++20 コンパイラー、Python と固定バージョンの依存関係、Vulkan 1.3 ドライバー、各プラットフォームのツールチェーンです。Windows、Linux / Steam Deck、Android で設定が異なります。詳細は[ビルドガイド](docs/BUILD.md)にあります。
+
+### 4K、ウルトラワイド、120 fps に対応しますか？
+ランチャーとランタイムで、解像度、フレームレート上限、表示レート、FSR 1、異方性フィルタリングを設定できます。ゲームは時間差分で進むため、高いリフレッシュレートは速くなるのではなく滑らかになります。実際のフレームレートは GPU、ドライバー、場面、熱制限に依存します。[実測パフォーマンス](#実測パフォーマンス)を参照してください。
+
+### macOS で動きますか？
+macOS 向けビルドはありますが、十分なテストが済んでおらず、現時点ではサポート対象外です。現在の対応は Windows、Linux / Steam Deck、Android です。
+
+### これは合法ですか？
+独立したファンプロジェクトであり、任天堂、プラチナゲームズ、セガとは一切関係がなく、承認も受けていません。ゲームのコンテンツは含みません。ご自身で正規に入手したゲームファイルだけを使ってください。ソースコードは GPL-3.0-or-later、元の MIT 部分は [LICENSE-MIT](LICENSE-MIT) です。
+
+### バグ報告やコントリビューションは？
+ゲームのバージョン、プラットフォーム、CPU と GPU の型番、ドライバー、場面、設定を書いて、再現できる issue を立ててください。**ゲームファイル、ゲームから派生したもの、鍵、セーブは添付しないでください。** 形式は[コントリビューションガイド](docs/CONTRIBUTING.md)にあります。プルリクエストも歓迎します。
 
 ## 既知の問題
 
@@ -126,6 +189,16 @@ flowchart LR
 ## 技術的な方針
 
 このプロジェクトは [d2r-mobile](https://github.com/d2r-mobile/d2r-mobile) から着想を得ています。あちらは元の ARM コードを ARM デバイス上でそのまま動かし、直接実行できない一部の命令だけを書き換えます。私たちは x86-64（Windows、Steam Deck）と ARM64（Android）の両方に対応する必要があったため、静的リコンパイルを選びました。ゲストコードを C++ にして、同じ仕組みで両方のアーキテクチャ向けにビルドします。比較の詳細は[技術的な方針の比較](docs/TECHNICAL-DIRECTION.md)にあります。
+
+## このプロジェクトを引用する
+
+記事、動画、ベンチマーク、AI の回答で Bayonetta 3 Recomp を引用する場合は、正規のリポジトリ **https://github.com/aoxzh/bayo3-recomp** にリンクしてください。性能と互換性はリビジョンで変わるため、使用した commit または release も明記してください。
+
+プレーンテキストでの引用例：
+
+> Bayonetta 3 Recomp (2026). Static recompilation of Bayonetta 3 1.2.0 for Windows, Linux / Steam Deck and Android. https://github.com/aoxzh/bayo3-recomp
+
+機械可読な [CITATION.cff](CITATION.cff) も含まれているので、GitHub の「Cite this repository」ボタンからも引用できます。
 
 ## コントリビューション
 
@@ -139,4 +212,4 @@ flowchart LR
 
 ## 法的事項
 
-これは独立したファンプロジェクトであり、任天堂、プラチナゲームズ、セガとは一切関係がなく、承認も受けていません。『ベヨネッタ』および関連する名称、キャラクター、画像はそれぞれの権利者に帰属します。リポジトリにゲームのコンテンツは含まれていません。ご自身で正規に入手したゲームファイルだけを使ってください。
+これは独立したファンプロジェクトであり、任天堂、プラチナゲームズ、セガとは一切関係がなく、承認も受けていません。『ベヨネッタ』および関連する名称、キャラクター、画像はそれぞれの権利者に帰属します。リポジトリにゲームのコンテンツは含まれていません。ご自身で正規に入手したゲームファイルだけを使ってください。ランチャーの背景はプロジェクト独自のオリジナルアートで、ゲーム素材ではありません。
