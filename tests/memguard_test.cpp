@@ -1,0 +1,36 @@
+// The Windows memory guard's helpers (runtime/src/memguard_win.cpp): the limit parsing, and that the footprint it
+// reads follows this process's own commits. Built by CMake with -DNX_TESTS=ON (ctest). Exit code 0: passed.
+#define NX_MEMGUARD_STANDALONE
+#include "../runtime/src/memguard_win.cpp"
+
+#include <vector>
+
+int main() {
+    using namespace nx::plat;
+    int failed = 0;
+    auto check = [&](bool ok, const char* what) {
+        if (!ok) std::printf("FAIL: %s\n", what), failed++;
+    };
+    // An unset limit uses 60% of the host's reported RAM, regardless of its capacity.
+    MEMORYSTATUSEX ms{};
+    ms.dwLength = sizeof ms;
+    check(GlobalMemoryStatusEx(&ms) != 0, "RAM size readable");
+    const double want = double(ms.ullTotalPhys) / double(1ull << 30) * 0.6;
+    check(memory_limit_gb(nullptr) == want, "unset limit is 60% of RAM");
+    check(memory_limit_gb("") == want, "empty limit is 60% of RAM");
+    check(memory_limit_gb("0") == want, "zero limit is 60% of RAM");
+    check(memory_limit_gb("-2") == want, "negative limit is 60% of RAM");
+    check(memory_limit_gb(nullptr) > 0.0, "the host's default limit is positive");
+    check(memory_limit_gb("5.5") == 5.5, "5.5 GB");
+    check(memory_limit_gb("12") == 12.0, "12 GB");
+
+    const uint64_t before = memory_footprint();
+    check(before > 0, "footprint readable");
+    std::vector<char> block(size_t(256) << 20, 1);  // 256 MB, touched
+    const uint64_t after = memory_footprint();
+    check(after >= before + (uint64_t(200) << 20), "a 256 MB commit shows in the footprint");
+    std::printf("memguard_test: footprint %.1f MB -> %.1f MB (%d)\n", double(before) / 1048576.0,
+                double(after) / 1048576.0, int(block[12345]));
+    std::printf("memguard_test: %s\n", failed ? "FAILED" : "all passed");
+    return failed ? 1 : 0;
+}

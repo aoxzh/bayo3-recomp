@@ -1,0 +1,4 @@
+# Pinned Python dependencies for the preparation and recompiler tools.
+# Preparation uses local dependencies; it never invokes pip or accesses the network.
+lz4==4.4.4
+capstone==5.0.6

@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "description": "Thresholds for tools/visual_regress.py. A golden set must be captured locally for the matching GPU, driver, operating system, and build; rendering and noise levels can differ between configurations.",
+  "goldens_root": "private/bayonetta3/visual",
+  "check": {
+    "width": 480,
+    "height": 270,
+    "tiles": [
+      8,
+      5
+    ],
+    "match": {
+      "luma_mae_max": 10.0,
+      "chroma_mae_max": 12.0,
+      "ssim_min": 0.55,
+      "missing_penalty": 60.0,
+      "edge_mae_max": 6.0
+    },
+    "thresholds": {
+      "luma_mae_max": 6.0,
+      "chroma_mae_max": 7.0,
+      "ssim_min": 0.9,
+      "tile_luma_mae_max": 18.0,
+      "tile_chroma_mae_max": 24.0,
+      "mean_luma_ratio_min": 0.88,
+      "mean_luma_ratio_max": 1.12,
+      "sat_ratio_min": 0.65,
+      "sat_ratio_max": 1.45,
+      "black_share_max": 0.6,
+      "min_mean_luma": 6.0,
+      "max_black_tiles": 0
+    }
+  },
+  "capture": {
+    "seconds": 240.0,
+    "every": 1.1,
+    "frame_timeout": 10.0,
+    "no_frame_timeout": 45.0,
+    "boot_timeout": 150.0,
+    "title_timeout": 120.0,
+    "stable_edge_mae_max": 2.5,
+    "stable_chroma_mae_max": 2.0,
+    "stable_luma_mae_max": 45.0,
+    "dedupe_edge_mae_max": 4.0,
+    "dedupe_luma_mae_max": 45.0,
+    "min_stable_samples": 3,
+    "screen_change_edge": 5.0,
+    "screen_change_luma": 60.0,
+    "max_dwell_samples": 6,
+    "settle": 0.22,
+    "max_scenes": 10,
+    "title_dwell_samples": 4
+  },
+  "scenes": {
+    "title": {
+      "note": "PRESS ANY BUTTON title card: bright, near-greyscale, animated sparkle. Required: every run reaches it."
+    },
+    "logo": {
+      "note": "BAYONETTA logo splash between the title and the main menu: bright purple logo on black."
+    },
+    "main-menu": {
+      "note": "MAIN MENU (Story/Continue, Options): dark menu with a drifting mist background."
+    },
+    "option-card": {
+      "note": "Naive Angel Mode / Cute Masking explanation card on first boot; close with B."
+    },
+    "chapter-select": {
+      "note": "Chapter Select / difficulty (PROLOGUE, STANDARD) with an animated smoke background."
+    },
+    "loading": {
+      "note": "White loading screen with the small purple emblem bottom right."
+    }
+  },
+  "labels": {
+    "macos-moltenvk": {
+      "required": [
+        "title"
+      ],
+      "optional": [
+        "logo",
+        "main-menu",
+        "option-card",
+        "chapter-select",
+        "loading"
+      ],
+      "notes": "Capture a local baseline for the matching macOS, GPU, driver, and build. Required scenes fail the run when missing; optional scenes are checked only when present. Do not reuse baselines across different rendering configurations."
+    },
+    "linux-amdgpu": {
+      "required": [
+        "title"
+      ],
+      "optional": [
+        "logo",
+        "main-menu",
+        "option-card",
+        "chapter-select",
+        "loading"
+      ],
+      "notes": "Capture a local baseline for the matching Linux, GPU, driver, and build. Do not reuse baselines across different rendering configurations."
+    },
+    "windows": {
+      "required": [
+        "title"
+      ],
+      "optional": [
+        "logo",
+        "main-menu",
+        "option-card",
+        "chapter-select",
+        "loading"
+      ],
+      "notes": "Capture a local Windows baseline for the matching GPU, driver, and build; macOS baselines do not apply."
+    }
+  }
+}

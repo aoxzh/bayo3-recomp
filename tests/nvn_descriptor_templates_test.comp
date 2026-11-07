@@ -1,0 +1,15 @@
+#version 450
+layout(local_size_x = 1) in;
+layout(set = 0, binding = 0) uniform DynamicInput { uint value; } dynamic_input;
+layout(set = 0, binding = 1) uniform ArrayInput { uint value; } array_input[3];
+layout(set = 1, binding = 0, std430) buffer Output { uint value[]; } output_data;
+layout(set = 1, binding = 1) uniform usamplerBuffer texel_input;
+layout(set = 1, binding = 2) uniform usampler2D image_input;
+void main() {
+    output_data.value[0] = dynamic_input.value;
+    output_data.value[1] = array_input[0].value;
+    output_data.value[2] = array_input[1].value;
+    output_data.value[3] = array_input[2].value;
+    output_data.value[4] = texelFetch(texel_input, 0).x;
+    output_data.value[5] = texelFetch(image_input, ivec2(0, 0), 0).x;
+}

@@ -1,0 +1,58 @@
+; A depth/stencil image's stencil index, widened into an R32_UINT image (nvn_stencil.cpp). GLSL equivalent:
+;   layout(local_size_x = 8, local_size_y = 8) in;
+;   layout(set = 0, binding = 0) uniform utexture2D src;              // the stencil aspect
+;   layout(set = 0, binding = 1, r32ui) uniform writeonly uimage2D dst;
+;   void main() {
+;       ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+;       if (all(lessThan(p, textureSize(src, 0)))) imageStore(dst, p, texelFetch(src, p, 0));
+;   }
+; spirv-as --target-env vulkan1.0 stencil_bits.spvasm -o stencil_bits.spv; the words are in nvn_stencil.cpp.
+               OpCapability Shader
+               OpCapability ImageQuery
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %main "main" %gid
+               OpExecutionMode %main LocalSize 8 8 1
+               OpDecorate %gid BuiltIn GlobalInvocationId
+               OpDecorate %src DescriptorSet 0
+               OpDecorate %src Binding 0
+               OpDecorate %dst DescriptorSet 0
+               OpDecorate %dst Binding 1
+               OpDecorate %dst NonReadable
+       %void = OpTypeVoid
+         %fn = OpTypeFunction %void
+       %uint = OpTypeInt 32 0
+        %int = OpTypeInt 32 1
+       %bool = OpTypeBool
+     %v2uint = OpTypeVector %uint 2
+     %v3uint = OpTypeVector %uint 3
+     %v4uint = OpTypeVector %uint 4
+      %v2int = OpTypeVector %int 2
+     %v2bool = OpTypeVector %bool 2
+      %int_0 = OpConstant %int 0
+   %src_type = OpTypeImage %uint 2D 0 0 0 1 Unknown
+    %src_ptr = OpTypePointer UniformConstant %src_type
+        %src = OpVariable %src_ptr UniformConstant
+   %dst_type = OpTypeImage %uint 2D 0 0 0 2 R32ui
+    %dst_ptr = OpTypePointer UniformConstant %dst_type
+        %dst = OpVariable %dst_ptr UniformConstant
+    %gid_ptr = OpTypePointer Input %v3uint
+        %gid = OpVariable %gid_ptr Input
+       %main = OpFunction %void None %fn
+      %entry = OpLabel
+          %g = OpLoad %v3uint %gid
+         %xy = OpVectorShuffle %v2uint %g %g 0 1
+          %p = OpBitcast %v2int %xy
+          %s = OpLoad %src_type %src
+       %size = OpImageQuerySizeLod %v2int %s %int_0
+     %inside = OpSLessThan %v2bool %p %size
+        %all = OpAll %bool %inside
+               OpSelectionMerge %done None
+               OpBranchConditional %all %body %done
+       %body = OpLabel
+          %t = OpImageFetch %v4uint %s %p Lod %int_0
+          %d = OpLoad %dst_type %dst
+               OpImageWrite %d %p %t
+               OpBranch %done
+       %done = OpLabel
+               OpReturn
+               OpFunctionEnd

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Experimental B3 shell: a launcher Activity (games/bayonetta3/java) in front of the NativeActivity. Build/package
+     success does not imply playable graphics. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.bayonetta3recomp"
+    android:versionCode="1"
+    android:versionName="0.1.0-dev">
+
+    <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35" />
+    <!-- Reading the data from Internal storage/Bayonetta 3, as the Hades and Wonder shells do: files pushed by adb
+         into the app's own Android/data folder on some devices stay owned by the shell user and the app cannot read
+         them (docs/archive/nvn/DEBUG-2.md, entry 78). The runtime opens the system dialog for this; from a PC the same grant
+         is the appops command MANAGE_EXTERNAL_STORAGE allow for the package. The app's external files folder needs none.
+    -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- Shared NVN/Vulkan backend requests Vulkan 1.3; Android API 29 alone is insufficient. -->
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x403000" android:required="true" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <application
+        android:label="Bayonetta 3 Recomp (Development)"
+        android:hasCode="true"
+        android:extractNativeLibs="true"
+        android:debuggable="true"
+        android:isGame="true"
+        android:appCategory="game"
+        android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        <!-- The home screen (games/bayonetta3/java): data checks, the performance profile and a few settings, written to
+             <data root>/config.txt before it starts the game below. -->
+        <activity
+            android:name=".LauncherActivity"
+            android:exported="true"
+            android:screenOrientation="sensorLandscape"
+            android:resizeableActivity="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- The game: libbayonetta3.so's android_main. Exported so scripts can start it directly with adb
+             (am start -n io.github.bayonetta3recomp/android.app.NativeActivity), skipping the launcher. -->
+        <activity
+            android:name="android.app.NativeActivity"
+            android:exported="true"
+            android:screenOrientation="sensorLandscape"
+            android:resizeableActivity="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density">
+            <meta-data android:name="android.app.lib_name" android:value="bayonetta3" />
+        </activity>
+        <!-- The bug report zip, handed to the app picked in the share sheet (SupportProvider.java). -->
+        <provider
+            android:name=".SupportProvider"
+            android:authorities="io.github.bayonetta3recomp.support"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+    </application>
+</manifest>

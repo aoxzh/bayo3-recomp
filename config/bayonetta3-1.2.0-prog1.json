@@ -1,0 +1,31 @@
+{
+  "title_id": "01004a4010fea001",
+  "version": "1.2.0",
+  "runtime_modules": [
+    "main",
+    "sdk"
+  ],
+  "romfs_marker": "core_000.pkz",
+  "provenance": {
+    "source": "upstream-bayonetta3-1.2.0-prog1.json",
+    "original_source": "private upstream version configuration (path redacted)",
+    "source_sha256": "6912230240081c3738c3365ec3170fdb1cd104c7cf87667745166ebab7e6272d",
+    "description": "Program 01004a4010fea001 (the second program the hub book launches through ExecuteProgram ProgramIndex 1). Its sdk is byte-identical to the main game's, so only main is generated; sdk is reused from the main game's generated module. Extracted from update/6187ce40...nca with nstool and the update ticket.",
+    "npdm_resource_size_evidence": "META+0x14 in the original local work/game/ExeFS/main.npdm; observed 0, not a runtime memory-size claim."
+  },
+  "npdm_system_resource_size": 0,
+  "window_base": "0x4000000000",
+  "window_size": 536870912,
+  "modules": {
+    "main": {
+      "base": "0x4000000000",
+      "build_id": "4fb8d54d22bcc2349852fcacf974b672a7c0b4a1000000000000000000000000",
+      "sha256": "d6e43604b86503373c108e40800af680c8f4133d6d42af869f462a39dd7f3cdf"
+    },
+    "sdk": {
+      "base": "0x4010000000",
+      "build_id": "357efc198e728cb5d55265aff304f03cfc9cc0e3000000000000000000000000",
+      "sha256": "2a89fa1c0e677710e89ed29b578162affef530a0c9b8c93cda15d50a57a20d28"
+    }
+  }
+}

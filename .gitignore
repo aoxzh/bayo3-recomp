@@ -1,0 +1,63 @@
+# Local game data, generated output, saves, and build products stay private.
+# This list is a safeguard, not a substitute for reviewing every staged file.
+private/
+# Common root-level locations for manually extracted game files.
+/game/
+/ExeFS/
+/exefs/
+/RomFS/
+/romfs/
+build*/
+.venv/
+venv/
+logs/
+saves/
+# Local acceptance records can include host paths and run metadata.
+docs/acceptance/
+bayonetta_tools/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+
+# Common game containers, executables, metadata, and extracted binaries.
+*.xci
+*.nsp
+*.nsz
+*.xcz
+*.nca
+*.nso
+*.npdm
+*.nacp
+*.nro
+*.nrr
+*.pfs0
+*.pkz
+*.wmb
+*.wtp
+*.elf
+*.bin
+*.spv
+
+# Archives may contain game data, saves, or personal material.
+*.zip
+*.7z
+*.rar
+
+# Local credentials, signing material, and configuration.
+*.keys
+*.key
+*.pem
+*.p12
+*.pfx
+*.keystore
+.env
+.env.*
+
+# Compiled distribution artifacts.
+*.exe
+*.dll
+*.so
+*.dylib
+*.apk
+*.aab

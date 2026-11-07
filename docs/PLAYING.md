@@ -1,0 +1,247 @@
+# Playing Bayonetta 3
+
+The game already runs and is playable on Windows, Linux/Steam Deck and Android, with performance measurements for each platform. macOS also has recorded gameplay and performance runs, though its older diagnostic runs do not validate every step of the normal visible-window recipe below. See [the README](../README.md) for current status. These recipes were checked against the launch scripts and runtime, and project reports informed them; this documentation pass did not repeat a clean rebuild and full play session on every platform.
+
+## Prepare once
+
+Run commands from the repository root and replace `/path/to/...` with your own locations. You need a matching, legally obtained copy of Bayonetta 3 1.2.0: its ExeFS (`main`, `subsdk0`, `sdk`, `main.npdm`), its RomFS, generated CPU code, and translated game shaders. First boot does not require a downloaded save. Choosing chapters that are already unlocked, such as Chapter 8, does require a progressed save of your own.
+
+[BUILD.md](BUILD.md) covers the Python environment, the identity-checked CPU generation, and the shader pipeline with its external decoder, Ryujinx and .NET dependencies. Preparation runs in Linux, macOS or native Windows Python with the pinned requirements; on Windows the links it creates are directory junctions. A complete generation has been run on native Windows for both programs. Generating on a POSIX host and transferring the private generated tree and game inputs to Windows, keeping the directory layout and repairing links for that host, is the tested route. Keep generated files and game inputs in `private/` or another local-only location.
+
+Once shader extraction, translation and verification have succeeded, publish the same work directory to the runtime bundle used throughout this guide:
+
+```bash
+python tools/bayonetta3_shaders.py publish \\
+  --work "$PWD/private/shader-work-local" \\
+  --publish-dir "$PWD/private/bayonetta3-shaders-repro"
+```
+
+Use the Python environment from BUILD. `publish` refuses an existing destination, so either keep an existing bundle or choose a fresh destination and update the launch path. Nothing is uploaded; this only copies files locally.
+
+Expected inputs:
+
+```text
+private/game/ExeFS/{main,subsdk0,sdk,main.npdm}
+private/game/RomFS/                       # full extracted RomFS
+private/bayonetta3/gen/{main,subsdk0,sdk}/ # generated .cpp and table.cpp
+private/bayonetta3/analysis/              # main.bin, subsdk0.bin, sdk.bin, etc.
+private/bayonetta3/extract/romfs           # preparation's link to RomFS
+private/bayonetta3-shaders-repro/spirv/    # .spv files and results.tsv
+```
+
+The runtime data root is a separate directory holding `analysis/`, `spirv/`, `extract/romfs/`, and a writable `user/` for saves. The desktop recipes link read-only inputs into it; Android copies their contents. Before reusing a runtime root, stop the game and back up its `user/` directory. Do not replace existing saves, delete unknown directories, or assume that changing a link updates another platform's data root.
+
+## Linux / Steam Deck
+
+Install Clang, CMake 3.25+, Ninja, the SDL3 development files, Vulkan headers and loader, and a working GPU driver, along with host libopus and ffmpeg. Vulkan headers must be compatible with the project's recorded 1.4.357 dependency. If SDL3 lives outside the normal search paths, set `CMAKE_PREFIX_PATH`.
+
+Build Release into the directory the player launcher uses; the development build helper defaults elsewhere:
+
+```bash
+cmake -S . -B private/build-deck -G Ninja \\
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang \\
+  -DCMAKE_CXX_COMPILER=clang++ -DNX_GAME=bayonetta3 \\
+  -DNX_GEN_DIR="$PWD/private/bayonetta3/gen" -DNX_RECOMP_OPT=2 \\
+  -DNX_VULKAN_INCLUDE="/path/to/Vulkan-Headers/include"
+cmake --build private/build-deck --parallel 2 --target bayonetta3
+mkdir -p private
+[ -f private/b3.conf ] || cp config/b3.conf.example private/b3.conf
+```
+
+Edit `private/b3.conf`. On a Steam Deck, set `handheld=1` and `resolution=1280x720`, leave `fps_cap` empty, and keep `headless=0` and `mute=0`. The recorded Deck performance setup used 15 W and `gpu_clock=1600`; that clock setting is optional and specific to the Deck. If you are not reproducing the benchmark, start from your normal power settings.
+
+```bash
+unset NX_HEADLESS NX_MUTE
+BUILD_DIR="$PWD/private/build-deck" \\
+B3_SPIRV_DIR="$PWD/private/bayonetta3-shaders-repro/spirv" \\
+  bash scripts/b3_play.sh
+```
+
+The launcher reads your config, creates a writable runtime root at `private/run-bayonetta3`, and starts the game. The log is `private/b3.log`. An optional settings UI is available as `bash scripts/b3_launcher.sh` (needs Python with Tk). For normal play use the player launcher; the timed experiment and benchmark scripts may mute, hide, automate or stop the game on purpose.
+
+## Windows 10/11 x86-64 — from your dump to playing
+
+On Windows one tool does the preparation, the build and the launch, natively, with no Git Bash and no Visual Studio:
+`tools/b3_win.py`. You need:
+
+- Your own dump of Bayonetta 3 with the 1.2.0 update applied: a folder with `exefs/` (`main`, `subsdk0`, `sdk`,
+  `main.npdm`) and `romfs/`. For the Old Picture Book, also program `01004a4010fea001` from the 1.2.0 update in a
+  `program1/` folder inside it (its own `exefs/` and `romfs/`); without it the book is skipped.
+- Python 3.12+ from python.org (with Tcl/Tk for the launcher window).
+- A Vulkan driver (every current GPU driver has one) and, for the cutscenes, the free "VP9 Video Extensions" from
+  the Microsoft Store.
+
+The build toolchain — llvm-mingw 20261020, CMake, Ninja, MinGit and the .NET 10 SDK — is downloaded by the setup
+from the official releases (hash-checked, about 600 MB, into `private/win/tools/`) unless it is already installed.
+
+```bat
+python tools\b3_win.py setup --dump D:\dumps\bayonetta3
+python tools\b3_win.py play
+```
+
+`setup` checks the dump against the 1.2.0 hashes, fetches and builds the pinned helpers (the Kraken decoder, the
+Ryujinx 1.3.2 shader translator, `spirv-val`, libopus, the Vulkan headers, the Python packages), generates the C++
+for every module, translates and verifies the shaders, builds the game and links its data folders. It took 31
+minutes on a 16-core laptop and is resumable: `--status` shows where it is, running it again continues, `--from <step>`
+or `--only <step>` repeats steps (`deps verify cpu shaders build link`). Your own installed tools are used when they
+are on PATH or named with `--tool <name>=<path>` (`llvm_mingw`, `cmake`, `ninja`, `git`, `dotnet`). Everything it writes stays in
+`private/win/`; your saves are in `private/win/run/b3/user/`.
+
+`play` reads `private/b3.conf` (created from `config/b3.conf.example` on first launch) and starts the game. When the
+picture book is opened it starts the Bayonetta Origins prologue and returns to Bayonetta 3 afterwards; both share
+the save. `scripts\b3_win_launcher.cmd` opens the launcher window (settings, controller check, Play) instead.
+
+Keyboard and mouse work alongside a controller. Click into the window to turn the camera with the mouse (F10 or
+switching windows releases it). Every input can be rebound in `private/b3.conf` with `key_<input>=<key>,...`; the
+file lists the inputs, the key names and the defaults. F11 or Alt+Enter toggles fullscreen.
+
+**F1** (or + and − together on a controller) opens the settings panel over the game: window mode, resolution, frame
+rate, v-sync, anisotropic filtering, FSR, controller layout, the mouse camera and sound. The arrows or the d-pad
+choose and change, Esc or B closes; the game is paused while it is open. Changes are saved to `private/b3.conf`;
+window mode and the mouse apply at once, the others say "(next start)".
+
+In the picture book's prologue, + offers to close the book; that returns to Bayonetta 3, where Continue goes back to
+the hub. For Discord Rich Presence, create an application at discord.com/developers (its name is what your friends
+see) and put its numeric id in `private/b3.conf` as `discord_app_id=`.
+
+### The developer route (Git Bash)
+
+The rest of this section is the older manual route, for working on the runtime itself. Use Git Bash, CMake, Ninja
+and LLVM-MinGW. Add its `bin` directory to PATH so the prefixed compilers and their runtime DLLs are both available. In the commands below, `MINGW` is the LLVM-MinGW install root and `VKH` the Vulkan SDK or header root containing `Include/vulkan` (or `include/vulkan` on a case-insensitive filesystem). The graphics driver supplies the Vulkan loader.
+
+```bash
+MINGW="/path/to/llvm-mingw"
+VKH="/path/to/Vulkan-Headers"
+export PATH="$MINGW/bin:$PATH"
+cmake -S . -B private/build-win -G Ninja \\
+  -DCMAKE_BUILD_TYPE=Release -DNX_GAME=bayonetta3 \\
+  -DCMAKE_C_COMPILER="$MINGW/bin/x86_64-w64-mingw32-clang.exe" \\
+  -DCMAKE_CXX_COMPILER="$MINGW/bin/x86_64-w64-mingw32-clang++.exe" \\
+  -DNX_GEN_DIR="$(cygpath -m "$PWD/private/bayonetta3/gen")" \\
+  -DNX_VULKAN_SDK="$(cygpath -m "$VKH")" -DNX_RECOMP_OPT=2
+cmake --build private/build-win --parallel 2 --target bayonetta3
+bash tools/build_opus_win.sh --jobs 2
+cp private/build-opus-win/libopus.dll private/build-win/libopus.dll
+mkdir -p private
+[ -f private/b3.conf ] || cp config/b3.conf.example private/b3.conf
+```
+
+Use the prefixed MinGW compiler drivers rather than an unrelated `clang` from PATH. Windows needs `libopus.dll` next to the executable; video uses Media Foundation and needs VP9 decoding support. In `private/b3.conf`, a useful starting point is `handheld=1`, `resolution=1280x720`, `render_res=1280x720`, `headless=0`, `mute=0`. `resolution` requests the host window; in the current Windows measurements `render_res` controls the internal render size. Increasing only the window size is not a 1080p rendering benchmark.
+
+```bash
+export B3_WIN_GAME_ROOT="$PWD/private/game"
+export B3_SPIRV_DIR="$PWD/private/bayonetta3-shaders-repro/spirv"
+export B3_WIN_DATA_ROOT="$PWD/private/run-win"
+export NX_DATA_ROOT="$(cygpath -w "$B3_WIN_DATA_ROOT")"
+export NX_LOG="$(cygpath -w "$PWD/private/b3-win.log")"
+unset NX_HEADLESS NX_MUTE
+bash scripts/b3_win_play.sh
+```
+
+The `B3_*` paths above are consumed by Bash, and the helper converts them when it creates NTFS junctions. Paths exported directly to the native runtime as `NX_*` must be Windows-native paths, since Git Bash does not reliably convert an arbitrary environment-variable path. The shader bundle is selected with `B3_SPIRV_DIR`; there is no `NX_SPIRV_DIR`. Existing runtime links are preserved, so inspect their targets when using an old data root.
+
+## macOS (Apple Silicon)
+
+Install CMake, Ninja, SDL3, Vulkan headers/loader, MoltenVK, libopus and ffmpeg, for example with Homebrew. The Vulkan loader must be able to find the MoltenVK ICD; if it cannot, follow your installed SDK or Homebrew instructions. Use the generated CPU tree and shader bundle prepared above.
+
+```bash
+brew install cmake ninja sdl3 vulkan-headers vulkan-loader molten-vk opus ffmpeg
+cmake -S . -B private/build-mac -G Ninja \\
+  -DCMAKE_BUILD_TYPE=Release -DNX_GAME=bayonetta3 \\
+  -DNX_GEN_DIR="$PWD/private/bayonetta3/gen" -DNX_RECOMP_OPT=2 \\
+  -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+cmake --build private/build-mac --parallel 2 --target bayonetta3
+```
+
+Use a fresh runtime directory for the setup below. If the path already exists, inspect it or choose another name rather than replacing its saves or links. macOS `ln` has no `-T` option.
+
+```bash
+MAC_RUN="$PWD/private/run-mac-player"
+[ ! -e "$MAC_RUN" ] || { echo 'Choose a fresh MAC_RUN directory'; exit 1; }
+mkdir -p "$MAC_RUN/extract"
+ln -s "$PWD/private/bayonetta3/analysis" "$MAC_RUN/analysis"
+ln -s "$PWD/private/game/RomFS" "$MAC_RUN/extract/romfs"
+ln -s "$PWD/private/bayonetta3-shaders-repro/spirv" "$MAC_RUN/spirv"
+```
+
+Later launches reuse the same `MAC_RUN` path and need only the launch command:
+
+```bash
+unset NX_HEADLESS NX_MUTE
+NX_DATA_ROOT="$MAC_RUN" NX_LOG="$PWD/private/b3-mac.log" \\
+NX_HANDHELD=1 NX_RESOLUTION=1280x720 \\
+  ./private/build-mac/bayonetta3
+```
+
+This runs the normal visible, audible executable directly and does not load `private/b3.conf`, so export any `NX_*` settings you want. Do not use `NX_HEADLESS=0` or `NX_MUTE=0`: these switches are enabled by their presence. The macOS gameplay measurements include older diagnostic runs, and this visible-window recipe was reviewed against the source rather than rerun as a fresh visible session for the documentation. Windows `render_res` measurements should not be assumed to apply unchanged to macOS.
+
+## Android arm64 — build, install and play
+
+On Linux, these commands build and package the APK; the Opus helper needs a Linux host because it uses the NDK's `linux-x86_64` strip tool. Install CMake, Ninja, Java/keytool, zip, adb, Android SDK build-tools and an Android platform API of 35 or newer, plus an NDK (the project used r28b) and recent Vulkan headers. The generated application targets Android API 29+, arm64-v8a. If more than one adb device is connected, select the intended phone with `ANDROID_SERIAL`.
+
+```bash
+export ANDROID_NDK_ROOT="/path/to/android-ndk"
+export ANDROID_SDK_ROOT="/path/to/android-sdk"
+export VULKAN_HEADERS="/path/to/Vulkan-Headers/include"
+export PATH="$ANDROID_SDK_ROOT/platform-tools:$PATH"
+bash tools/build_opus_android.sh --jobs 2
+bash android/build_bayonetta3.sh \\
+  --gen-dir "$PWD/private/bayonetta3/gen" --jobs 2 --apk
+adb install -r private/build-android/apk/bayonetta3.apk
+```
+
+On Windows, `android\build_bayonetta3.ps1` does the same from PowerShell: it uses the generated code from the Windows setup (`private\win\cpu\b3\gen`), takes the SDK from `ANDROID_SDK_ROOT` (newest NDK, build-tools and platform 35+), needs CMake, Ninja and a JDK, and `-Install [-Serial <device>]` also installs the APK and grants the storage permission. libopus still comes from the Linux helper above (`private/toolchains/opus-android/arm64-v8a/libopus.so`); without it the script warns and the game stops at startup.
+
+```powershell
+android\build_bayonetta3.ps1 -Install
+```
+
+This builds the native library and packages libopus into a locally signed development APK. Installing it does not supply the game files. `adb install -r` requires a compatible signature, so back up the saves before uninstalling an existing installation to resolve a signing mismatch.
+
+The commands below use the shared storage root `/sdcard/Bayonetta 3`. Stop the app and back up any existing `user/` folder before updating data; none of these pushes replaces `user/`. Push contents with the trailing `/.` so you do not end up with `analysis/analysis` or `romfs/RomFS` nesting:
+
+```bash
+adb shell am force-stop io.github.bayonetta3recomp
+adb shell 'mkdir -p "/sdcard/Bayonetta 3/analysis" "/sdcard/Bayonetta 3/spirv" "/sdcard/Bayonetta 3/extract/romfs"'
+adb push private/bayonetta3/analysis/. '/sdcard/Bayonetta 3/analysis/'
+adb push private/bayonetta3-shaders-repro/spirv/. '/sdcard/Bayonetta 3/spirv/'
+adb push private/game/RomFS/. '/sdcard/Bayonetta 3/extract/romfs/'
+```
+
+Create a local `private/android-config.txt` with exactly these lines, without spaces around `=` or inline comments. If the device already has a config, pull it and edit it rather than replacing it outright:
+
+```ini
+resolution=1280x720
+NX_HANDHELD=1
+NX_FPS_CAP=30
+NX_GPU_TURBO=1
+```
+
+Android's platform window-size parser reads the plain `resolution` key, while runtime switches use exact `NX_*` names; the lowercase desktop player-config keys are not interchangeable with them. Android defaults to 30 FPS for sustained play, and `NX_FPS_CAP=60` removes that floor without guaranteeing 60 FPS. `NX_FPS_CAP=60` together with `NX_DISPLAY_HZ=40` paces an even 40 FPS on a 120 Hz panel instead; on the phone measured so far it holds only until the device heats up (see [PERFORMANCE.md](PERFORMANCE.md)). The latest recorded phone setup keeps `NX_GPU_TURBO=1`; heating and device drivers still affect sustained performance.
+
+```bash
+adb push private/android-config.txt '/sdcard/Bayonetta 3/config.txt'
+adb shell am start -a android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION \\
+  -d package:io.github.bayonetta3recomp
+# On the phone, enable all-files access, then return to the game.
+adb shell am start -n io.github.bayonetta3recomp/android.app.NativeActivity
+```
+
+The native shell has no game importer. Its data root lookup prefers the selected root, then a populated app-specific external folder, then the shared `Bayonetta 3` folder. An older app-specific folder that already contains `analysis/main.bin` may take priority over the new shared files, so check the startup log before moving anything. For diagnostics, run `adb logcat -s bayonetta3`.
+
+## Controls, saves and chapter selection
+
+Use a controller for normal gameplay. Buttons follow Nintendo positions by default, and `pad_swap=1` on desktop swaps A/B and X/Y for Xbox labels. On keyboard, WASD or the arrow keys move; Space is A, Shift is B, J is X, K is Y, Q/E are L/R, Z/C are ZL/ZR, Enter is + and Escape is −. On Windows the mouse also turns the camera once you click into the window, the left and right buttons are Y and X, V and the middle button are the stick clicks, Numpad 8/4/5/6 turn the camera, and `key_<input>=` in `private/b3.conf` rebinds anything. Android supports touch controls as well as controllers. The on-screen layout follows the two Joy-Cons: the left stick with the D-pad below it, the face buttons with the right stick below them, L/R and ZL/ZR in the top corners and −/+ in the middle. Both sticks float (they start where the thumb lands in their half of the screen and spring back when released); the D-pad takes diagonals and lets the thumb slide between directions. The controls hide while a controller is in use. `NX_TOUCH_SHOW=0`, `NX_TOUCH_SIZE` (50–160), `NX_TOUCH_OPACITY` (10–100), `NX_TOUCH_MIRROR=1` and `NX_TOUCH_LAYOUT` in `config.txt` hide, scale, dim, mirror or move them.
+
+A first boot with an empty `user/` folder can start a new game. Quit cleanly and back up `user/` before moving between builds or platforms. A progressed personal save may expose more chapters; it is not a build dependency and is not distributed with the project.
+
+To reach an unlocked Chapter 8, continue into the hub and use the wall map/dartboard: hold L, aim the stick at the purple chapter node, press A, then choose Chapter Select/checkpoint and confirm with A. This is separate from the records/book interaction, which starts the second guest program (the Bayonetta Origins prologue). On Windows that program builds and renders, and `scripts/b3_win_play.sh` performs the program switch, but the round trip from the book has not been played through. A known Prologue/end-of-cutscene loading or progression issue remains; reaching Chapter 8 through chapter selection is a useful route around that section, not proof of an uninterrupted full-game playthrough. Do not overwrite a new save to follow that route.
+
+## If the screen stays black or launch exits
+
+1. Read the startup log and verify the actual runtime data root. It must contain `analysis/main.bin`, the other matching module images, the full RomFS under `extract/romfs/` (including `root_000.pkz`) and a populated `spirv/` with `results.tsv`. Check link targets and Android folder nesting, not merely that directory names exist.
+2. Confirm the executable and generated modules are from the same matching 1.2.0 inputs. A standalone test build without generated code is not the game executable.
+3. Unset inherited `NX_HEADLESS`/`NX_MUTE` and diagnostic/automation settings, and inspect the player config. A value of `0` does not disable every runtime environment switch.
+4. Check Vulkan device/loader errors and shader errors. Linux/macOS cutscenes require ffmpeg on PATH; Windows requires working Media Foundation VP9 support. `hwopus: host libopus unavailable` or the Windows DLL error means the host Opus dependency is missing.
+5. On Android, check all-files access and the `android: chosen ... own ... shared ...` startup message. On Windows, verify native `NX_*` paths and keep LLVM-MinGW runtime DLLs available. A memory-limit exit is not fixed by forcing a low 8 GiB ceiling; leave the default unless you have measured a suitable limit.
+6. Distinguish a first-boot/data-path problem from the known later Prologue progression issue. Keep your save backup and report the scene, platform, settings and relevant sanitized log excerpt.

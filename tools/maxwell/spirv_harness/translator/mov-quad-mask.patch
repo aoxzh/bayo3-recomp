@@ -1,0 +1,87 @@
+Ryujinx shader translator: honour Maxwell's MOV quad-lane mask (QuadMask).
+
+Ryujinx decodes QuadMask (MOV bits 39..42) and then ignores it, emitting an unconditional register copy.
+On the hardware a MOV with QuadMask != 0xF writes only the lanes the mask selects, one bit per lane of the
+2x2 pixel quad (bit0 = lane 0 .. bit3 = lane 3); 0xF is the ordinary all-lanes case and is what 127,446 of
+the 127,855 MOVs in Bayonetta 3 use.
+
+The mask matters in the Vanish effect shaders (docs/BAYONETTA3_SHADERS.md): after every TEX.3D the shader
+fills registers with four MOVs whose masks are 1, 2, 4 and 8 in turn, i.e. one pass per quad lane, and each
+pass must write only its own lane. Emitted unconditionally, every pass overwrites all four lanes, so the
+sample of the last pass wins for the whole quad and three quarters of the data is lost.
+
+A masked MOV becomes `dest = (lane_in_quad == ctz(mask)) ? src : dest`; the read-modify-write keeps the lanes
+the mask does not select, which is what the hardware leaves in the register. Lane-in-quad is the low two bits
+of the subgroup lane id, the same quantity the translator already loads for S2R LaneId and for the
+quad-scoped SHFL lowering.
+
+Applied at build time by translator/Ryujinx.Graphics.Shader.csproj to a copy in private/build; the checkout in
+private/third_party stays untouched. The Ryujinx code in the context lines is MIT.
+@@ -13,30 +13,63 @@
+         {
+             InstMovR op = context.GetOp<InstMovR>();
+ 
+-            context.Copy(GetDest(op.Dest), GetSrcReg(context, op.SrcA));
++            EmitMovQuadMasked(context, op.Dest, GetSrcReg(context, op.SrcA), op.QuadMask);
+         }
+ 
+         public static void MovI(EmitterContext context)
+         {
+             InstMovI op = context.GetOp<InstMovI>();
+ 
+-            context.Copy(GetDest(op.Dest), GetSrcImm(context, op.Imm20));
++            EmitMovQuadMasked(context, op.Dest, GetSrcImm(context, op.Imm20), op.QuadMask);
+         }
+ 
+         public static void MovC(EmitterContext context)
+         {
+             InstMovC op = context.GetOp<InstMovC>();
+ 
+-            context.Copy(GetDest(op.Dest), GetSrcCbuf(context, op.CbufSlot, op.CbufOffset));
++            EmitMovQuadMasked(context, op.Dest, GetSrcCbuf(context, op.CbufSlot, op.CbufOffset), op.QuadMask);
+         }
+ 
+         public static void Mov32i(EmitterContext context)
+         {
+             InstMov32i op = context.GetOp<InstMov32i>();
+ 
+-            context.Copy(GetDest(op.Dest), GetSrcImm(context, op.Imm32));
++            EmitMovQuadMasked(context, op.Dest, GetSrcImm(context, op.Imm32), op.QuadMask);
+         }
+ 
++        // Maxwell MOV writes only the quad lanes its 4-bit mask selects (bit0 = lane 0 .. bit3 = lane 3);
++        // 0xF is the ordinary all-lanes case. A masked write leaves the unselected lanes untouched, so the
++        // value has to be read back and selected per lane. See docs/BAYONETTA3_SHADERS.md.
++        private static void EmitMovQuadMasked(EmitterContext context, int dest, Operand src, int quadMask)
++        {
++            if (quadMask == 0xF)
++            {
++                context.Copy(GetDest(dest), src);
++                return;
++            }
++
++            Operand laneInQuad = context.BitwiseAnd(LoadLaneId(context), Const(3));
++            Operand selected = context.ICompareEqual(laneInQuad, Const(QuadMaskToLane(quadMask)));
++
++            context.Copy(GetDest(dest), context.ConditionalSelect(selected, src, GetSrcReg(context, dest)));
++        }
++
++        // The mask has one bit per quad lane, so the selected lane is the index of its single set bit.
++        private static int QuadMaskToLane(int quadMask)
++        {
++            return quadMask switch { 1 => 0, 2 => 1, 4 => 2, 8 => 3, _ => -1 };
++        }
++
++        private static Operand LoadLaneId(EmitterContext context)
++        {
++            if (context.TranslatorContext.GpuAccessor.QueryHostSubgroupSize() <= 32)
++            {
++                return context.Load(StorageKind.Input, IoVariable.SubgroupLaneId);
++            }
++
++            return context.BitwiseAnd(context.Load(StorageKind.Input, IoVariable.SubgroupLaneId), Const(0x1f));
++        }
++
+         public static void R2pR(EmitterContext context)
+         {
+             InstR2pR op = context.GetOp<InstR2pR>();

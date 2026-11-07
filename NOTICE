@@ -1,0 +1,49 @@
+Bayonetta 3 Recomp
+==================
+
+This repository combines code under more than one license. This notice
+summarizes the layout; the license texts and the per-component notices control.
+
+Combined work
+-------------
+The combined distribution is conveyed under the GNU General Public License,
+version 3 or (at your option) any later version (GPL-3.0-or-later). The full
+text is in LICENSE. This is required because the combined work includes
+GPL-3.0-or-later adaptations from Witch Time.
+
+MIT-licensed portions
+---------------------
+Original code that was MIT-licensed remains available under the MIT License.
+The MIT text and copyright notice are preserved in LICENSE-MIT. The MIT
+permission notice is retained and does not override the GPL obligations that
+apply to the combined distribution.
+
+Component notices
+-----------------
+- Adapted scene-clock and guest-fast-path files: docs/WITCH-TIME-NOTICES.md
+- Per-component licensing, shader provenance and third-party notices:
+  docs/LICENSING.md
+- Upstream project and Vulkan-Headers provenance: docs/UPSTREAM_PROVENANCE.json
+- Third-party shader and tool notices: the LICENSE.* files under tools/ and
+  runtime/src/ (including Ryujinx, SuperMarioWonderRecomp, b3-mobile,
+  d2r-mobile, AMD FidelityFX FSR, Pillow and Vulkan-Headers)
+
+Upstream projects include SuperMarioWonderRecomp (MIT), Witch Time
+(GPL-3.0-or-later), d2r-mobile, Ryujinx, b3-mobile and the other projects
+named in docs/LICENSING.md. Their copyright and license notices are retained
+in the files and notices listed there.
+
+Game content and documentation
+------------------------------
+This repository does not include game programs, keys, firmware, saves,
+generated game code or game shaders. Game names, characters and imagery belong to
+their respective rights holders. Documentation screenshots are captures of the
+running game and are included for documentation only; they are not licensed
+under the source-code licenses. The launcher background in
+tools/launcher_assets is an original generated asset for this project, not
+game content. Users must supply their own legally obtained game files.
+
+No warranty
+-----------
+The software is provided without warranty, to the extent permitted by
+applicable law. See LICENSE and LICENSE-MIT.

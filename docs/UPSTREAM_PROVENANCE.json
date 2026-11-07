@@ -1,0 +1,13 @@
+{
+  "upstream": {
+    "repository": "https://github.com/BelmanteGu/SuperMarioWonderRecomp",
+    "commit": "665b2f9c175be3386cb0f683b677aa443afbbf06",
+    "license": "MIT"
+  },
+  "vulkan_headers": {
+    "url": "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.357.tar.gz",
+    "sha256": "7dc0dbcf1d49dd3d7da3761c251c6097dfbaac475321a4a8a99269d3d5abecdc",
+    "version": "1.4.357",
+    "scope": "private build dependency"
+  }
+}
