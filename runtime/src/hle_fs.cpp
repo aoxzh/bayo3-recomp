@@ -1,7 +1,8 @@
 // nn::fs at the API level, on host files. The game imports these by name (main), so no fsp-srv IPC is involved:
-//   rom:   -> private/extract/romfs (the RomFS with the update applied)
+//   rom:   -> private/extract/romfs (the RomFS with the update applied), overlaid by <data root>/mods (scan_mods)
 //   save:  -> private/user/save/<mount>
 //   cache: -> private/user/cache<index>
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <cstdio>
@@ -82,7 +83,7 @@ uint32_t host_error(int error) {
 }
 
 std::mutex g_fs;
-struct Mount { fs::path root; uint64_t id; };
+struct Mount { fs::path root; uint64_t id; bool rom = false; };
 std::map<std::string, Mount> g_mounts;
 uint64_t g_next_mount = 1;
 // Open files: shared so a read in progress survives a close from another thread. Reads run outside g_fs (which
@@ -162,6 +163,42 @@ void trace_movie_read(const File& file, int64_t off, uint64_t size, uint64_t got
             (unsigned long long)size, (unsigned long long)got, rc);
 }
 
+// Mods: every folder under <data root>/mods replaces game files by their RomFS path, from <mod>/romfs/<path> (or
+// <mod>/<path> when the mod has no romfs/ folder). Folders apply in name order and a later one wins; a name starting
+// with '-' or '.' is switched off. Read once, when the rom mount is first made; the log lists what was found. Mods
+// replace files the game opens by name; a file only a mod has does not show up in a directory listing.
+std::vector<fs::path> g_mod_roots;  // the winner first
+
+void scan_mods() {
+    g_mod_roots.clear();
+    std::error_code ec;
+    const fs::path mods = data_root() / "mods";
+    if (!fs::is_directory(mods, ec)) return;
+    std::vector<fs::path> found;
+    for (auto& e : fs::directory_iterator(mods, ec)) {
+        if (!e.is_directory(ec)) continue;
+        const std::string name = utf8(e.path().filename());
+        if (name.empty() || name[0] == '-' || name[0] == '.') {
+            log("fs: mod %s is off (its name starts with '%c')", name.c_str(), name.empty() ? '?' : name[0]);
+            continue;
+        }
+        found.push_back(fs::is_directory(e.path() / "romfs", ec) ? e.path() / "romfs" : e.path());
+    }
+    std::sort(found.begin(), found.end());
+    for (auto& m : found) log("fs: mod %s", utf8(m).c_str());
+    g_mod_roots.assign(found.rbegin(), found.rend());
+}
+
+// The mod file that replaces `rest` of the RomFS, or empty.
+fs::path mod_file(const std::string& rest) {
+    std::error_code ec;
+    for (auto& root : g_mod_roots) {
+        fs::path p = root / fs::u8path(rest);
+        if (fs::is_regular_file(p, ec)) return p;
+    }
+    return {};
+}
+
 // "mount:/a/b" -> host path; empty when the mount is unknown.
 fs::path resolve(const std::string& guest) {
     auto colon = guest.find(':');
@@ -170,6 +207,11 @@ fs::path resolve(const std::string& guest) {
     if (it == g_mounts.end()) return {};
     std::string rest = guest.substr(colon + 1);
     while (!rest.empty() && (rest[0] == '/' || rest[0] == '\\')) rest.erase(0, 1);
+    if (it->second.rom && !g_mod_roots.empty() && !rest.empty())
+        if (fs::path m = mod_file(rest); !m.empty()) {
+            if (trace_fs()) log("fs: %s from a mod: %s", guest.c_str(), utf8(m).c_str());
+            return m;
+        }
     return it->second.root / fs::u8path(rest);
 }
 
@@ -205,7 +247,13 @@ void QueryMountRomCacheSize(CPU& c) {
 
 void MountRom(CPU& c) {
     std::lock_guard lk(g_fs);
-    c.x[0] = mount(cstr(c.x[0]), data_root() / "extract" / "romfs");
+    const std::string name = cstr(c.x[0]);
+    c.x[0] = mount(name, data_root() / "extract" / "romfs");
+    if (c.x[0] == kOk) {
+        g_mounts[name].rom = true;
+        static bool scanned = false;
+        if (!scanned) scanned = true, scan_mods();
+    }
 }
 
 // The save folder of the account::Uid at a guest address: user/save for the first user, user/save_<uid> for the others.

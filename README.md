@@ -55,7 +55,7 @@ The agent checks your system, GPU driver and toolchain, validates your game file
 - **The whole program is recompiled to native code.** The recompiler translates the game's AArch64 machine code into C++ function by function, and Clang builds it for the target. PCs and the Steam Deck run x86-64 code, phones run ARM64 code, and not a single instruction is interpreted or translated at run time.
 - **System services are reimplemented on the host.** The runtime provides the Horizon services the game uses (files, threads and sync, audio, video playback, controllers, saves and accounts) and maps NVN graphics calls onto Vulkan.
 - **Shaders are translated offline.** The build translates every shader to SPIR-V, and an on-disk pipeline cache does the rest, so entering a new area does not wait on shader compiles.
-- **Frame rate fits the device.** The game advances by time deltas, so 90 or 120 Hz is smoother, not faster. Phones get 30 / 40 / uncapped profiles, because what limits a phone is heat, not peak speed.
+- **Frame rate fits the device.** Above 60 Hz the runtime converts the game's 60 Hz step and its frame-counted windows (stick moves, Witch Time's slow-downs) to real time, so 90 or 120 Hz plays at the right speed. Phones get 30 / 40 / uncapped profiles, because what limits a phone is heat, not peak speed.
 
 ## What ships, and what you bring
 
@@ -168,7 +168,7 @@ Bayonetta 3 version 1.2.0 only. Preparation validates the ExeFS/RomFS identity a
 A 64-bit host with CMake 3.25+, a C++20 compiler, Python and the pinned dependencies, a Vulkan 1.3 driver, and the platform toolchain. Windows, Linux / Steam Deck and Android each have their own setup; the [build guide](docs/BUILD.md) lists the details.
 
 ### Does it support 4K, ultrawide or 120 fps?
-The launcher and runtime expose resolution, frame-rate cap, display rate, FSR 1 and anisotropic filtering settings. The game is delta-timed, so higher refresh rates are smoother rather than faster. Actual frame rate depends on the GPU, driver, scene and thermal limits; see [Measured performance](#measured-performance).
+The launcher and runtime expose resolution, frame-rate cap, display rate, FSR 1 and anisotropic filtering settings. Above 60 Hz the runtime keeps gameplay and the game's frame-counted timing windows at real time; hit-stops still count frames, so they are a little shorter there. Actual frame rate depends on the GPU, driver, scene and thermal limits; see [Measured performance](#measured-performance).
 
 ### Does it work on macOS?
 A macOS build exists, but it has not been fully tested and is not listed as supported. Windows, Linux / Steam Deck and Android are the supported platforms.

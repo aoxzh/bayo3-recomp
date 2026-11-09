@@ -83,9 +83,34 @@ python tools\b3_win.py play
 Ryujinx 1.3.2 shader translator, `spirv-val`, libopus, the Vulkan headers, the Python packages), generates the C++
 for every module, translates and verifies the shaders, builds the game and links its data folders. It took 31
 minutes on a 16-core laptop and is resumable: `--status` shows where it is, running it again continues, `--from <step>`
-or `--only <step>` repeats steps (`deps verify cpu shaders build link`). Your own installed tools are used when they
+or `--only <step>` repeats steps (`deps verify data cpu shaders build link`). Your own installed tools are used when they
 are on PATH or named with `--tool <name>=<path>` (`llvm_mingw`, `cmake`, `ninja`, `git`, `dotnet`). Everything it writes stays in
 `private/win/`; your saves are in `private/win/run/b3/user/`.
+
+The `data` step brings the dump's `exefs/` and `romfs/` into `private/win/data/`, so the folder holds the whole game
+and the dump is no longer needed to play. By default it makes hard links (same drive: no extra space, the dump stays
+whole); `--data copy` copies (another drive), `--data move` moves the files out of the dump, `--data keep` leaves
+them where they are. After moving the whole folder, `play` notices that its data links point at the old place and
+makes them again.
+
+**Texture cache.** On a GPU without ASTC (Intel Arc, AMD, the Steam Deck) the game's ASTC textures are decoded on
+the CPU the first time they load, as before, and a background thread at the lowest priority stores them as BC7 in
+`private/win/run/b3/texcache/` (the log: `ASTC as BC7`). From the next load on they are read from there: a quarter
+of the RGBA8 size, no decoding. Measured in the Prologue on an Arc B390: 1,256 textures and 2.7 s of CPU decoding
+(worst 60-frame window 1.4 s) the first time, 70 textures and 56 ms (worst window 40 ms) the next; the Prologue's
+cache is 1.1 GB. `astc_bc7=0` keeps RGBA8, `texcache_mb=` caps the cache (default 8192). Phones with Adreno read
+ASTC themselves and do not use it. BC7 here is one mode (one subset): 45 dB against the ASTC decode on average,
+about 25 dB on the rare block with several distinct colours.
+
+**Mods** go in `private/win/run/b3/mods/<name>/romfs/` (or straight in `mods/<name>/`), with the same paths as the
+game's RomFS: a file there replaces the game's file of that name. Folders apply in name order and a later one wins;
+rename a folder to start with `-` to switch it off. The log lists the mods it found (`fs: mod ...`).
+
+**A release zip** of this checkout: `python tools\b3_win.py package [--python <a Python install folder>]` writes
+`dist\Bayonetta3Recomp-<version>-windows-x64.zip` and its `.sha256`. It holds the tracked files only (it refuses
+anything under `private/` and game file formats) and a `Bayonetta3Recomp.cmd` that, on first double-click, asks for
+the dump folder, runs the setup and then opens the launcher (`b3_win.py first-run`). Make releases from the public
+tree.
 
 `play` reads `private/b3.conf` (created from `config/b3.conf.example` on first launch) and starts the game. When the
 picture book is opened it starts the Bayonetta Origins prologue and returns to Bayonetta 3 afterwards; both share
@@ -96,9 +121,10 @@ switching windows releases it). Every input can be rebound in `private/b3.conf` 
 file lists the inputs, the key names and the defaults. F11 or Alt+Enter toggles fullscreen.
 
 **F1** (or + and − together on a controller) opens the settings panel over the game: window mode, resolution, frame
-rate, v-sync, anisotropic filtering, FSR, controller layout, the mouse camera and sound. The arrows or the d-pad
-choose and change, Esc or B closes; the game is paused while it is open. Changes are saved to `private/b3.conf`;
-window mode and the mouse apply at once, the others say "(next start)".
+rate, v-sync, anisotropic filtering, FSR, model detail, controller layout, the mouse camera and sound. The arrows or
+the d-pad choose and change, Esc or B closes; the game is paused while it is open. Changes are saved to
+`private/b3.conf`; window mode, model detail and the mouse apply at once, the others say "(next start)". Model detail
+`Highest` (`model_lod=highest`) keeps every model with more than one level of detail at its finest at any distance.
 
 In the picture book's prologue, + offers to close the book; that returns to Bayonetta 3, where Continue goes back to
 the hub. For Discord Rich Presence, create an application at discord.com/developers (its name is what your friends

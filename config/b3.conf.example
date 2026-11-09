@@ -17,9 +17,12 @@ fsr=0                    # 1: FidelityFX Super Resolution 1 when the window is l
 fsr_sharp=               # FSR sharpening: 0, 1, 2; empty = 0.2
 fps_cap=                 # empty = runtime/game pacing; 30 = 30 fps mode; Android defaults to 30.
 display_hz=              # the rate the game paces itself by: 60, 90, 120, 144; empty = the display's own.
-                         # The game is delta-timed: above 60 is smoother, not faster
+                         # Above 60 the runtime converts the gameplay step and the game's frame-counted windows
+                         # (stick moves, Witch Time slow-downs) to 60 Hz frames; NX_FPS_STEP=0 / NX_FPS_COUNTERS=0
+                         # turn those off for comparison. Hit-stops still count frames (shorter above 60)
 fifo=0                   # 1: v-sync (wait for the display refresh: no tearing, a little more latency)
 aniso=                   # anisotropic filtering 2, 4, 8 or 16; empty = the game's own
+model_lod=               # highest: models keep their finest detail at any distance (costs GPU time); empty = the game's
 
 # ---- Controller ------------------------------------------------------------------------------
 pad_swap=0               # 0: Nintendo layout; 1: swap A/B and X/Y for Xbox labels
@@ -66,4 +69,7 @@ ultrawide=0              # 1: experimentally widen the render to the window's as
 mem_limit_gb=            # guest memory ceiling in GiB; empty = the runtime's default
 pipelined=               # submits in flight, 2..4; empty = 3 on Linux desktop (0 = synchronous, much slower)
 pipeline_cache=1         # 1: reuse the pipeline cache between runs (faster startup)
+astc_bc7=                # 0: ASTC textures as RGBA8 on GPUs without ASTC (Intel Arc, AMD, Steam Deck); empty = as
+                         # BC7 from a disk cache in <data root>/texcache, filled in the background the first time
+texcache_mb=             # that cache's cap in MB; empty = 8192 (the oldest files go first)
 headless=0               # 1: run without a window (benchmarks and the test scripts)

@@ -26,7 +26,7 @@ quad = body(0x007E1FE4, '    ++c.x[10];\n    return;')
 morton = body(0x00B382C0, '    ++c.x[11];\n    return;')
 original = '#include "funcs.h"\n// LOCAL EDIT MUST SURVIVE\n' + '\n\n'.join([quad, morton, clock]) + '\n'
 updated, found = refresh(original, b3_hooks.MAIN_SHA256)
-assert found == set(b3_hooks.ENTRIES)
+assert found == {b3_hooks.SCENE_CLOCK, 0x007E1FE4, 0x00B382C0}
 assert '// LOCAL EDIT MUST SURVIVE\n' in updated
 assert '    ++c.x[10];\n    return;' in updated
 assert '    ++c.x[11];\n    return;' in updated
@@ -39,6 +39,27 @@ for name, digest, entry in [('sdk', b3_hooks.MAIN_SHA256, b3_hooks.SCENE_CLOCK),
                             ('main', b3_hooks.MAIN_SHA256, 0x1234)]:
     assert b3_hooks.apply(clock, name, entry, digest) == clock
 assert b3_hooks.includes('void unchanged() {}') == ''
+
+# Frame counters: the op at its address is rewritten, once; anything else at that address is refused.
+hit = 0x004355BC
+filler = '\n'.join('    c.x[0] = 0; // nop' for _ in range((0x0043574C - hit) // 4))
+subs = '    c.x[8] = uint32_t(nx::subs32(c, uint32_t(c.x[8]), uint32_t(0x1ull))); // subs w8, w8, #1'
+counter = body(hit, filler + '\nL_43574C:;\n' + subs + '\n    return; // ret')
+patched = b3_hooks.apply(counter, 'main', hit, b3_hooks.MAIN_SHA256)
+assert patched.count('nx::b3::fps_ci(0x435754ull, c.x[19] + 0x2a78ull, uint32_t(c.x[8]), 1, -1)') == 1
+assert b3_hooks.apply(patched, 'main', hit, b3_hooks.MAIN_SHA256) == patched
+assert b3_hooks.includes(patched) == '#include <nx/b3_fps_counters.h>\n'
+try:
+    b3_hooks.apply(counter.replace('// subs w8, w8, #1', '// subs w8, w9, #1'), 'main', hit, b3_hooks.MAIN_SHA256)
+except ValueError:
+    pass
+else:
+    raise AssertionError('a different instruction at a counter op was accepted')
+fadd = '    { float r_ = float((c.v[0].f32[0]) + (c.v[1].f32[0])); c.v[0].f32[0] = r_; } // fadd s0, s0, s1'
+assert '+ (c.v[1].f32[0] * float(nx::b3::fps_cf(0xc8a7ccull, c.x[19] + 0x940ull, c.v[0].f32[0], -1)))' in b3_hooks._counter_op(fadd, 'fadd s0, s0, s1', 0xC8A7CC, 'f1', 19, 0x940)
+assert '+ (c.v[0].f32[0] * nx::b3::fps_fs(0x77397cull, c.x[19] + 0x68ull))' in b3_hooks._counter_op(
+    fadd.replace('(c.v[0].f32[0]) + (c.v[1]', '(c.v[1].f32[0]) + (c.v[0]'), 'fadd s0, s1, s0', 0x77397C, 'fs', 19, 0x68)
+assert 'c.x[24] - 0x80ull' == b3_hooks._field(24, -0x80)
 for malformed in [original + '\n' + quad, original.replace('return;\n}', 'return;\nBROKEN}', 1)]:
     try:
         refresh(malformed, b3_hooks.MAIN_SHA256)

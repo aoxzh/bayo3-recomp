@@ -23,6 +23,7 @@
 #include <unordered_map>
 
 #include "nvn_pipeline.h"
+#include "nvn_astc_bc7.h"
 #include "nvn_draw_state.h"
 #include "nvn_ultrawide.h"
 #include "nvn_spirv_precision.h"
@@ -37,6 +38,7 @@ using namespace nx::vk;
 // and saturation (docs/archive/nvn/DEBUG.md #29).
 VkFormat view_format(const GpuImage& img, uint32_t nvn) {
     if (VkFormat f; bc_view_format(img, nvn, f)) return f;  // decoded BC (nvn_bc.cpp)
+    if (img.astc_bc7) return nvn && is_astc(nvn) ? astc_bc7_format(nvn) : img.format;  // ASTC as BC7
     if (!nvn || nvn == img.nvn_format || img.alpha_from_r || img.aspect != VK_IMAGE_ASPECT_COLOR_BIT) return img.format;
     VkFormat f = vk_format(nvn);
     uint32_t bw = 1, bh = 1, bytes = 0, iw = 1, ih = 1, ibytes = 0;

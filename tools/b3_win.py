@@ -11,10 +11,14 @@ where it stopped (`--from <step>` reruns from a step, `--only <step>[,<step>]` r
     deps     find the build tools; fetch and build the pinned ones a release cannot assume (the Python packages, the
              ooz Kraken decoder, the Ryujinx 1.3.2 shader subset, SPIRV-Tools' spirv-val, libopus)
     verify   the dump's ExeFS modules and shader archives against config/bayonetta3-1.2.0*.json
+    data     the dump's exefs/ and romfs/ into private/win/data/<program>, so this folder holds the whole game and can
+             be moved: hard links on the same drive (no extra space, the dump stays whole; --data link, the
+             default), a copy (--data copy), moved out of the dump (--data move), or left where it is (--data keep)
     cpu      the AArch64 -> C++ generation of every module (tools/prepare_bayonetta3.py --generate)
     shaders  extract, translate, verify and publish the game's shaders (tools/bayonetta3_shaders.py)
     build    the executables (CMake + Ninja + llvm-mingw) and the DLLs beside them
-    link     the data roots the runtime reads, as directory junctions (no copies, no elevation)
+    link     the data roots the runtime reads, as directory junctions (no copies, no elevation); `play` makes them
+             again when the folder was moved
 
 Program 1 (the Bayonetta Origins prologue the hub's picture book starts) goes through cpu, shaders, build and link too
 when --program1 names its folder (exefs/ and romfs/ from the 1.2.0 update, or main/sdk/main.npdm beside romfs/).
@@ -42,7 +46,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WIN = Path(os.environ.get('B3_WIN_ROOT') or ROOT / 'private/win')  # B3_WIN_ROOT: another tree (tests)
 STATE = WIN / 'state.json'
 SETTINGS = WIN / 'setup.json'
-STEPS = ['deps', 'verify', 'cpu', 'shaders', 'build', 'link']
+STEPS = ['deps', 'verify', 'data', 'cpu', 'shaders', 'build', 'link']
 PROGRAMS = {  # program -> (version configuration, executable target, data root name)
     'b3': (ROOT / 'config/bayonetta3-1.2.0.json', 'bayonetta3', 'b3'),
     'prog1': (ROOT / 'config/bayonetta3-1.2.0-prog1.json', 'bayonetta3prog1', 'prog1'),
@@ -408,6 +412,79 @@ def folder_of(settings, program):
     return Path(settings['dump'] if program == 'b3' else settings['program1'])
 
 
+def local_layout(settings, program):
+    """(exefs, romfs) the later steps read: private/win/data/<program> once the data step brought them there, else the
+    dump's own folders."""
+    here = WIN / 'data' / program
+    if (here / 'complete.json').exists():
+        return here / 'exefs', here / 'romfs'
+    return dump_layout(folder_of(settings, program), program)
+
+
+def same_drive_link(src, dst):
+    """A hard link dst -> src; False when the two are on different drives (or the file system has no hard links)."""
+    try:
+        os.link(src, dst)
+        return True
+    except OSError as e:
+        if getattr(e, 'winerror', None) == 17 or e.errno in (18,):  # ERROR_NOT_SAME_DEVICE / EXDEV
+            return False
+        raise
+
+
+def bring_tree(src, dst, mode):
+    """Every file of src into dst by `mode` (link / copy / move); returns (files, bytes), or None when link cannot
+    work across drives. Files already there with the same size are kept, so an interrupted step resumes."""
+    files = size = 0
+    for folder, _, names in os.walk(src):
+        rel = Path(folder).relative_to(src)
+        (dst / rel).mkdir(parents=True, exist_ok=True)
+        for name in names:
+            a, b = Path(folder) / name, dst / rel / name
+            n = a.stat().st_size
+            if not (b.exists() and b.stat().st_size == n):
+                if b.exists():
+                    b.unlink()
+                if mode == 'link':
+                    if not same_drive_link(a, b):
+                        return None
+                elif mode == 'move':
+                    shutil.move(a, b)
+                else:
+                    shutil.copy2(a, b)
+            files += 1
+            size += n
+    return files, size
+
+
+def step_data(settings, log):
+    mode = settings.get('data_mode', 'link')
+    for program in programs(settings):
+        here = WIN / 'data' / program
+        marker = here / 'complete.json'
+        if marker.exists():
+            continue
+        if mode == 'keep':
+            say(f'data: {program} stays in {folder_of(settings, program)} (--data keep): this folder needs the dump')
+            continue
+        exefs, romfs = dump_layout(folder_of(settings, program), program)
+        say(f'data: {program} by {mode} into {here}')
+        done = {}
+        for name, src in (('exefs', exefs), ('romfs', romfs)):
+            got = bring_tree(src, here / name, mode)
+            if got is None:
+                shutil.rmtree(here, ignore_errors=True)
+                say(f'data: {src} is on another drive, so it cannot be hard-linked; it stays where it is. '
+                    f'`setup --only data --data copy` copies it here instead (it takes as much space again)')
+                break
+            done[name] = {'files': got[0], 'bytes': got[1], 'from': str(src)}
+        else:
+            save(marker, {'mode': mode, **done, 'at': time.strftime('%Y-%m-%d %H:%M:%S')})
+            gb = sum(d['bytes'] for d in done.values()) / 1e9
+            say(f'data: {program}: {sum(d["files"] for d in done.values())} files, {gb:.1f} GB '
+                f'({"no extra space" if mode == "link" else "moved" if mode == "move" else "copied"})')
+
+
 def step_verify(settings, log):
     for program in programs(settings):
         say(f'verify: {program}')
@@ -421,7 +498,7 @@ def step_cpu(settings, log):
         if (out / 'manifest.json').exists() and (out / 'gen').is_dir():
             continue  # prepare_bayonetta3.py checks ownership and identity; a finished one is not redone
         say(f'cpu: generating {program} (10-40 minutes)')
-        exefs, romfs = dump_layout(folder_of(settings, program), program)
+        exefs, romfs = local_layout(settings, program)
         run([found['python'], ROOT / 'tools/prepare_bayonetta3.py', '--generate', '--config', PROGRAMS[program][0],
              '--exefs', exefs, '--romfs', romfs, '--output', out, '--python', found['python']],
             log, env=build_env(found))
@@ -436,7 +513,7 @@ def step_shaders(settings, log):
         if (published / 'spirv/results.tsv').exists():
             continue
         say(f'shaders: {program} (extract, translate, verify: 30-90 minutes)')
-        exefs, romfs = dump_layout(folder_of(settings, program), program)
+        exefs, romfs = local_layout(settings, program)
         game = WIN / 'game' / program  # ExeFS/ + RomFS/ as the shader tool expects them
         junction(game / 'ExeFS', exefs)
         junction(game / 'RomFS', romfs)
@@ -483,7 +560,7 @@ def step_link(settings, log):
     b3_root, prog1_root = data_roots()
     for program in programs(settings):
         root = b3_root if program == 'b3' else prog1_root
-        _, romfs = dump_layout(folder_of(settings, program), program)
+        _, romfs = local_layout(settings, program)
         junction(root / 'analysis', WIN / 'cpu' / program / 'analysis')
         junction(root / 'spirv', WIN / 'shaders' / program / 'spirv')
         junction(root / 'extract/romfs', romfs)
@@ -499,6 +576,8 @@ def setup(a):
         settings['dump'] = str(Path(a.dump).resolve())
     if a.program1:
         settings['program1'] = str(Path(a.program1).resolve())
+    if a.data:
+        settings['data_mode'] = a.data
     elif a.dump and 'program1' not in settings:
         p1 = child(Path(a.dump), 'program1')  # Witch Time's layout: the dump's program1/ folder
         if p1:
@@ -568,9 +647,27 @@ def conf_env(path):
     return env
 
 
+def links_ok(settings):
+    """Whether every data-root junction still reaches what it should: junctions hold absolute paths, so after the
+    folder was moved (or the drive letter changed) they point at the old place."""
+    b3_root, prog1_root = data_roots()
+    for program in programs(settings):
+        root = b3_root if program == 'b3' else prog1_root
+        expect = {'analysis': WIN / 'cpu' / program / 'analysis', 'spirv': WIN / 'shaders' / program / 'spirv',
+                  'extract/romfs': local_layout(settings, program)[1]}
+        for name, target in expect.items():
+            link = root / name
+            if not is_link(link) or Path(os.path.realpath(link)) != Path(target).resolve():
+                return False
+    return True
+
+
 def play(a):
     settings = load(SETTINGS, {})
     b3_root, prog1_root = data_roots()
+    if settings.get('dump') and not links_ok(settings):
+        say('play: the folder moved (or a link broke): linking the data roots again')
+        step_link(settings, None)
     exes = {0: WIN / 'build/b3/bayonetta3.exe', 1: WIN / 'build/prog1/bayonetta3prog1.exe'}
     roots = {0: b3_root, 1: prog1_root}
     if not exes[0].exists():
@@ -609,6 +706,101 @@ def play(a):
         program = target
 
 
+def first_run(a):
+    """The release's double-click entry (Bayonetta3Recomp.cmd): set up from a dump the player picks, then the launcher.
+    A finished setup goes straight to the launcher."""
+    state = load(STATE, {})
+    if not all(step in state for step in STEPS):
+        settings = load(SETTINGS, {})
+        dump = a.dump or settings.get('dump')
+        if not dump:
+            say('Pick the folder that holds your Bayonetta 3 1.2.0 dump (exefs\\ and romfs\\).')
+            try:
+                import tkinter
+                from tkinter import filedialog
+                root = tkinter.Tk()
+                root.withdraw()
+                dump = filedialog.askdirectory(title='Your Bayonetta 3 1.2.0 dump: the folder with exefs and romfs')
+                root.destroy()
+            except Exception:  # no Tk: ask on the console
+                dump = input('Dump folder: ').strip().strip('"')
+        if not dump:
+            raise SetupError('no dump folder chosen')
+        dump_layout(Path(dump), 'b3')  # says what is missing before an hour of setup starts
+        say('Setting up: this builds the game from your dump on this PC (about an hour the first time; it resumes '
+            'where it stopped if you close this window).')
+        rc = setup(argparse.Namespace(dump=dump, program1=None, tool=None, only=None, from_step=None, status=False,
+                                      data=a.data, jobs=0))
+        if rc:
+            return rc
+    if a.no_launcher:
+        return 0
+    return subprocess.call([sys.executable, str(ROOT / 'tools/b3_launcher.py')], cwd=str(ROOT))
+
+
+# What a release may hold: the repository's own tracked files, never anything derived from the game.
+PACKAGE_REFUSED = ('.pkz', '.nso', '.nca', '.nsp', '.xci', '.keys', '.npdm', '.spv', '.bk2', '.webm')
+LAUNCH_CMD = r'''@echo off
+rem Bayonetta 3 Recomp: double-click to set up from your own dump (the first time) and play.
+setlocal
+cd /d "%~dp0"
+set PY=
+if exist "python\python.exe" set PY=python\python.exe
+if not defined PY if defined B3_PYTHON set PY=%B3_PYTHON%
+if not defined PY where py >nul 2>nul && set PY=py -3
+if not defined PY where python >nul 2>nul && set PY=python
+if not defined PY (
+    echo No Python 3 found: install it from python.org ^(with Tcl/Tk^) or use a release that bundles it.
+    pause
+    exit /b 1
+)
+%PY% tools\b3_win.py first-run %*
+if errorlevel 1 pause
+endlocal
+'''
+
+
+def package_files():
+    """The tracked files of this checkout (git ls-files), checked: nothing under private/, no game formats."""
+    out = subprocess.run(['git', 'ls-files', '-z'], cwd=str(ROOT), capture_output=True, check=True).stdout
+    files = [f for f in out.decode('utf-8').split('\0') if f]
+    bad = [f for f in files if f.startswith('private/') or f.lower().endswith(PACKAGE_REFUSED)]
+    if bad:
+        raise SetupError('refusing to package files that look game-derived: ' + ', '.join(bad[:5]))
+    return files
+
+
+def package(a):
+    import zipfile
+    version = a.version or subprocess.run(['git', 'describe', '--tags', '--always', '--dirty'], cwd=str(ROOT),
+                                          capture_output=True, text=True).stdout.strip() or 'dev'
+    name = f'Bayonetta3Recomp-{version}-windows-x64'
+    out_dir = Path(a.out).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    zpath = out_dir / f'{name}.zip'
+    files = package_files()
+    count = 0
+    with zipfile.ZipFile(zpath, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        for f in files:
+            src = ROOT / f
+            if src.is_file():
+                z.write(src, f'{name}/{f}')
+                count += 1
+        z.writestr(f'{name}/Bayonetta3Recomp.cmd', LAUNCH_CMD.replace('\n', '\r\n'))
+        if a.python:
+            py = Path(a.python).resolve()
+            if not (py / 'python.exe').exists():
+                raise SetupError(f'{py} has no python.exe')
+            for path in sorted(py.rglob('*')):
+                if path.is_file() and '__pycache__' not in path.parts and 'site-packages' not in path.parts:
+                    z.write(path, f'{name}/python/{path.relative_to(py).as_posix()}')
+    digest = hashlib.sha256(zpath.read_bytes()).hexdigest()
+    zpath.with_name(zpath.name + '.sha256').write_text(f'{digest}  {zpath.name}\n', encoding='utf-8')
+    say(f'package: {zpath} ({count} files{", with Python" if a.python else ""}, '
+        f'{zpath.stat().st_size / 1e6:.1f} MB), sha256 {digest}')
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='command', required=True)
@@ -620,11 +812,23 @@ def main(argv=None):
     s.add_argument('--only', help='comma-separated steps to run (again)')
     s.add_argument('--from', dest='from_step', choices=STEPS, help='run again from this step on')
     s.add_argument('--status', action='store_true', help='show what is done')
+    s.add_argument('--data', choices=['link', 'copy', 'move', 'keep'],
+                   help='how the data step brings the dump here (default link: hard links, no extra space)')
     s.add_argument('--jobs', type=int, default=0, help='parallel compile jobs (default: all cores)')
     s.set_defaults(func=setup)
     q = sub.add_parser('play', help='run the game (and program 1 when the picture book asks for it)')
     q.add_argument('args', nargs=argparse.REMAINDER, help='runtime arguments')
     q.set_defaults(func=play)
+    f = sub.add_parser('first-run', help="a release's double-click entry: setup from a dump you pick, then the launcher")
+    f.add_argument('--dump', help='the dump folder (default: a folder picker)')
+    f.add_argument('--data', choices=['link', 'copy', 'move', 'keep'], help='as for setup')
+    f.add_argument('--no-launcher', action='store_true', help='stop after setup')
+    f.set_defaults(func=first_run)
+    k = sub.add_parser('package', help='a release zip of this checkout (tracked files only, no game data)')
+    k.add_argument('--out', default=str(ROOT / 'dist'), help='where the zip goes (default: dist/)')
+    k.add_argument('--version', help='the name in the zip (default: git describe)')
+    k.add_argument('--python', help='a Python install folder to bundle as python/ (python.exe, Lib, DLLs, tcl)')
+    k.set_defaults(func=package)
     a = p.parse_args(argv)
     try:
         return a.func(a)

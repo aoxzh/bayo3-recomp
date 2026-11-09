@@ -134,6 +134,36 @@ def test_program_switch():
         check(not (b3 / 'relaunch.txt').exists(), 'relaunch.txt is consumed')
 
 
+def test_data_step_and_relink():
+    with tempfile.TemporaryDirectory() as tmp:
+        w = fresh(tmp)
+        dump = Path(tmp) / 'dump'
+        (dump / 'exefs').mkdir(parents=True)
+        (dump / 'exefs/main').write_bytes(b'M' * 10)
+        (dump / 'romfs/sub').mkdir(parents=True)
+        (dump / 'romfs/sub/a.pkz').write_bytes(b'A' * 100)
+        settings = {'dump': str(dump)}
+        eq(w.local_layout(settings, 'b3')[1], dump / 'romfs', 'before the data step the dump is read')
+        w.step_data(settings, None)
+        here = w.WIN / 'data/b3'
+        eq((here / 'romfs/sub/a.pkz').read_bytes(), b'A' * 100, 'romfs file brought in')
+        eq(os.stat(here / 'romfs/sub/a.pkz').st_nlink, 2, 'same drive: a hard link, no extra space')
+        check((dump / 'romfs/sub/a.pkz').exists(), 'link mode leaves the dump whole')
+        eq(w.local_layout(settings, 'b3'), (here / 'exefs', here / 'romfs'), 'later steps read the local copy')
+        w.step_data(settings, None)  # done: nothing to redo
+        check(w.load(here / 'complete.json', {})['romfs']['files'] == 1, 'the marker counts the files')
+        for d in ('cpu/b3/analysis', 'shaders/b3/spirv'):
+            (w.WIN / d).mkdir(parents=True)
+        check(not w.links_ok(settings), 'no data roots yet')
+        w.step_link(settings, None)
+        check(w.links_ok(settings), 'linked data roots are in order')
+        # a junction left pointing elsewhere (as after moving the folder) is found and made again
+        w.junction(w.WIN / 'run/b3/extract/romfs', dump / 'romfs')
+        check(not w.links_ok(settings), 'a data root that points outside is noticed')
+        w.step_link(settings, None)
+        check(w.links_ok(settings), 'relinked')
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith('test_') and callable(v)]
     for test in tests:

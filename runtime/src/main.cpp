@@ -171,6 +171,7 @@ NX_HLE("__process_return", process_return);
 void boot() {
     if (const char* t = std::getenv("NX_TRACE")) g_trace = *t == '1';
     if (plat::setting("trace") == "1") g_trace = true;
+    plat::start_code_preload();  // first: the disk reads overlap everything that follows
     memory_init();
     kernel_init();
 #if defined(NX_BAYONETTA3_PROG1)

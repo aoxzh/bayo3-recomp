@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix="b3-scene-clock-") as temp:
     subprocess.run(
         command + [
             "-std=c++20", "-O1", "-pthread", "-I", str(ROOT / "runtime/include"),
-            str(ROOT / "runtime/src/b3_scene_clock.cpp"),
+            str(ROOT / "runtime/src/b3_scene_clock.cpp"), str(ROOT / "runtime/src/b3_fps_counters.cpp"),
             str(ROOT / "tests/b3_scene_clock_test.cpp"), "-o", str(exe),
         ],
         check=True,

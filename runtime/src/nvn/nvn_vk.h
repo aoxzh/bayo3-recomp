@@ -35,6 +35,8 @@ struct GpuImage {
     bool alpha_from_r = false;
     uint32_t nvn_format = 0;  // the texture's NVN format
     bool uw = false;          // NX_ULTRAWIDE: a widened render target (nvn_ultrawide.cpp)
+    bool astc_bc7 = false;    // an ASTC texture made BC7 from the disk cache (nvn_astc_bc7.cpp)
+    uint64_t astc_key = 0;    // the cache key it was made for
 };
 
 bool gpu_ensure_initialized();

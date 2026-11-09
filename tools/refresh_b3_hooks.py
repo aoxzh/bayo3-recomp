@@ -38,7 +38,7 @@ def refresh(text, source_sha256):
         found.add(entry)
         match = function_match(updated, opening)
         body = match.group(0)
-        if entry == b3_hooks.SCENE_CLOCK and 'nx::b3::scene_clock_after(' in body:
+        if entry in b3_hooks.POST_HOOKS and b3_hooks.POST_HOOKS[entry][1].split('(')[0] + '(' in body:
             original_opening = opening.replace('void main_', 'static void main_', 1).replace(
                 '(nx::CPU&', '_original(nx::CPU&', 1)
             original = function_match(updated, original_opening).group(0)

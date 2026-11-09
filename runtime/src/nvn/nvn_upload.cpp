@@ -2,6 +2,7 @@
 // format wider than NVN does, and checked against what the copies read (docs/archive/nvn/DEBUG.md #50).
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -12,6 +13,8 @@
 
 #include "nvn_astc.h"
 #include "nvn_astc_cache.h"
+#include "nvn_astc_bc7.h"
+#include "nvn_bc7_encode.h"
 #include "nvn_copy_behind.h"
 #include "nvn_pipeline.h"
 #include "nvn_draw_state.h"
@@ -518,7 +521,58 @@ void upload_texture(VkCommandBuffer cb, const Texture& t, GpuImage& img, uint64_
     uint64_t scale = widen ? 2 : 1;
     uint64_t staged = 0;
     Upload u{};
+    if (img.astc_bc7) {  // ASTC made BC7 (nvn_astc_bc7.cpp): the cached blocks, else encoded now
+        const uint64_t decode_t0 = plat::monotonic_ns();
+        const uint32_t slices = volume ? 1u : layers;
+        staged = astc_bc7_size(levels, slices);
+        u = texture_stage(staged);
+        const uint64_t key = astc_bc7_key(t);
+        if (!astc_bc7_read(key, u.ptr, staged)) {
+            // The contents changed since the image was made (or the file went): encode them now, and keep them.
+            astc_bc7_encode_now(linear.data(), levels, slices, bw, bh, t.format >= 0x87, u.ptr);
+            astc_bc7_store(key, std::vector<uint8_t>(u.ptr, u.ptr + staged));
+            static std::atomic<uint64_t> encoded{0};
+            if (encoded.fetch_add(1) % 50 == 0)
+                log("nvn/vk: ASTC as BC7: %llu textures encoded at upload (contents changed after the image was made)",
+                    static_cast<unsigned long long>(encoded.load()));
+        }
+        g_cost_decode += plat::monotonic_ns() - decode_t0;
+        // NX_ASTC_BC7_CHECK=1: level 0 of every BC7 upload decoded back (nvn_bc.cpp) against the ASTC decode, as PSNR.
+        static const bool check = std::getenv("NX_ASTC_BC7_CHECK") != nullptr;
+        if (check && !levels.empty()) {
+            const LinearLevel& l = levels[0];
+            std::vector<uint8_t> want(uint64_t(l.width) * l.height * 4), got(want.size());
+            astc_decode_image(linear.data() + l.offset, l.width, l.height, 1, bw, bh, t.format >= 0x87, want.data());
+            bc_decode(0x4d, u.ptr, l.width, l.height, 1, got.data());
+            double se = 0;
+            for (size_t i = 0; i < want.size(); i++) se += (double(want[i]) - got[i]) * (double(want[i]) - got[i]);
+            const double mse = se / double(want.size()), db = mse > 0 ? 10 * std::log10(65025.0 / mse) : 99.0;
+            static double worst = 99, sum = 0;
+            static uint64_t n = 0;
+            worst = std::min(worst, db), sum += db, ++n;
+            if (n % 100 == 1 || db < 25)
+                log("nvn/vk: ASTC as BC7 check: %ux%u format %#x: %.1f dB (%llu textures: mean %.1f dB, worst %.1f)",
+                    l.width, l.height, t.format, db, static_cast<unsigned long long>(n), sum / double(n), worst);
+        }
+        uint64_t at = 0;
+        for (uint32_t k = 0; k < levels.size(); k++) {
+            VkBufferImageCopy r{};
+            r.bufferOffset = u.offset + at;
+            r.imageSubresource = {img.aspect, k, 0, img.layers};
+            r.imageExtent = {levels[k].width, levels[k].height, 1u};
+            copies.push_back(r);
+            at += bc7_level_bytes(levels[k].width, levels[k].height) * slices;
+        }
+        if (!copies_fit(t, copies.data(), uint32_t(copies.size()), u.offset, staged, 4, 4, 16))
+            return clear_image(cb, img);
+        transition(cb, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        p_vkCmdCopyBufferToImage(cb, u.buffer, img.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                 uint32_t(copies.size()), copies.data());
+        return;
+    }
     if (astc_decoded(t.format)) {  // RGBA8 texels from here on
+        // Fill the BC7 cache in the background for the next time this texture's image is made (nvn_astc_bc7.cpp).
+        if (astc_bc7_on() && !volume) astc_bc7_queue(astc_bc7_key(t), linear, levels, layers, bw, bh, t.format >= 0x87);
         size_t decoded_size = 0;
         const uint64_t decode_t0 = plat::monotonic_ns();
         u = decode_astc(t.format, linear, levels, layers, bw, bh, volume, decoded_size);

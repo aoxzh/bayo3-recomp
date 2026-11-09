@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "nvn_vk.h"
+#include "nvn_astc_bc7.h"
 #include "nvn_compute_keep.h"
 #include "nvn_draw_frame_stats.h"
 #include "nvn_submit_diag.h"
@@ -372,6 +373,16 @@ bool init() {
     // NX_ASTC_DECODE=1|linear|srgb: the CPU decoder even where the GPU has ASTC (to compare the two on one GPU).
     set_astc_native(g_features.textureCompressionASTC_LDR);
     log("nvn/vk: ASTC %s", astc_native() ? "native" : "decoded to RGBA8 at upload (no textureCompressionASTC_LDR)");
+    {  // ASTC as BC7 (nvn_astc_bc7.cpp): no native ASTC, and BC7 sampled and copied to in optimal tiling
+        bool bc7 = !astc_native() && g_features.textureCompressionBC;
+        for (VkFormat f : {VK_FORMAT_BC7_UNORM_BLOCK, VK_FORMAT_BC7_SRGB_BLOCK}) {
+            VkFormatProperties fp{};
+            p_vkGetPhysicalDeviceFormatProperties(g_physical, f, &fp);
+            const VkFormatFeatureFlags need = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+            bc7 = bc7 && (fp.optimalTilingFeatures & need) == need;
+        }
+        set_astc_bc7(bc7);
+    }
     log("nvn/vk: depthClamp %u, depthBiasClamp %u, depthBounds %u, depth clip control %u (extension %u)",
         g_features.depthClamp, g_features.depthBiasClamp, g_features.depthBounds, g_depth_clip_control,
         has_extension(dext, "VK_EXT_depth_clip_control") ? 1u : 0u);

@@ -133,6 +133,11 @@ WriteWatchSnapshot write_watch_snapshot();
 // NX_HEADLESS=1: no visible window (it is created hidden) and nothing presented; frames still render and
 // NX_DUMP_FRAMES still writes them. For unattended test runs.
 bool headless();
+// Live settings (settings_live.cpp): read once from the player's settings, then changed by the settings panel.
+int model_lod();  // 1: model_lod = highest (b3_model_lod.cpp), 0: the game's own
+void set_model_lod(int v);
+void start_code_preload();
+void lower_thread_priority();  // the calling thread at the host's lowest (background work; code_preload.cpp)  // read the program's code into memory in the background (code_preload.cpp)
 // Ends the process when its memory footprint passes NX_MEM_LIMIT_GB (default 8); logs it every 30 s (macOS).
 void start_memory_guard();
 // How much of [from, to) (monotonic ns) the memory guard spent reading (memguard_android.cpp; 0 elsewhere).

@@ -5,6 +5,7 @@
 #include <memory>
 #include <tuple>
 
+#include "nvn_astc_bc7.h"
 #include "nvn_vk.h"
 
 namespace nx::nvn {
@@ -105,6 +106,14 @@ GpuImage* image_of(uint64_t guest) {
     img->format = bc_host_decode(t->format) ? bc_decoded_format(t->format) : vk_format(t->format);  // nvn_bc.cpp
     img->nvn_format = t->format;
     img->uw = t->uw;
+    // ASTC on a GPU without it: BC7 when the disk cache has these contents (nvn_astc_bc7.cpp), else RGBA8 as before
+    // and the cache is filled in the background. 3D textures stay RGBA8.
+    if (astc_decoded(t->format) && astc_bc7_on() && t->target != 2 && t->memory && t->storage_size)
+        if (const uint64_t key = astc_bc7_key(*t); astc_bc7_cached(key)) {
+            img->format = astc_bc7_format(t->format);
+            img->astc_bc7 = true;
+            img->astc_key = key;
+        }
     if (t->format == 0x1 && t->pool_swizzle == 0x02010101u) {
         img->format = VK_FORMAT_R8G8B8A8_UNORM;
         img->alpha_from_r = true;

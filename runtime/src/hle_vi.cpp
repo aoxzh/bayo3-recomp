@@ -6,6 +6,7 @@
 #include <mutex>
 #include <thread>
 
+#include <nx/b3_scene_clock.h>
 #include <nx/runtime.h>
 
 #include "kernel.h"
@@ -24,10 +25,10 @@ namespace nx {
 // 13 ms/frame of GPU headroom (docs/WINDOWS-PORT-2026-11-03.md §8). A host that cannot report its rate
 // (screen_refresh_hz() == 0) keeps the historical 60 Hz.
 //
-// Raising it is safe for THIS game: Bayonetta 3 is delta-timed, not stepped by the present interval. Measured on the
-// same fight, the scene clock the game itself keeps reports 16.70 ms at 60 Hz against 8.20 ms at 120 Hz, and the
-// 30 fps cutscene still plays at 30.00 fps — so the frame rate rises without the game running fast. (That is the
-// opposite of the Wonder finding in docs/archive/nvn/studies/fps-unlock-1710.md, where a rate above 60 doubled game speed.)
+// Raising it needs the clock conversions in b3_scene_clock.cpp / b3_fps_counters.cpp, which this rate turns on above
+// 60: the game's gameplay step floors at one 60 Hz frame, so without them every frame at 120 Hz advanced 1/60 s and
+// gameplay ran at 2.00x (measured 2026-11-09, `measured probe` game/wall; 1.00 with the conversion). Movies, audio
+// and the fixed 30 fps scenes follow wall time either way (docs/WINDOWS-PORT-2026-11-03.md §9).
 uint64_t display_period_ns() {
     static const uint64_t p = [] {
         const char* e = std::getenv("NX_DISPLAY_HZ");
@@ -37,7 +38,11 @@ uint64_t display_period_ns() {
             hz = int(plat::screen_refresh_hz());
             source = "the panel";
         }
-        if (hz < 30 || hz > 360) return uint64_t(16'666'667);
+        if (hz < 30 || hz > 360) {
+            b3::scene_clock_set_display_hz(60);
+            return uint64_t(16'666'667);
+        }
+        b3::scene_clock_set_display_hz(hz);
         log("vi: display at %d Hz (%s)", hz, source);
         return uint64_t(1'000'000'000ull / uint64_t(hz));
     }();

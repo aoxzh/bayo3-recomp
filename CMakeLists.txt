@@ -121,6 +121,9 @@ if(NX_TESTS AND NOT ANDROID)
     add_executable(astc_test tests/astc_test.cpp runtime/src/nvn/nvn_astc.cpp)
     target_include_directories(astc_test PRIVATE runtime/src/nvn)
     add_test(NAME astc COMMAND astc_test --selftest)
+    add_executable(bc7_encode_test tests/bc7_encode_test.cpp runtime/src/nvn/nvn_bc7_encode.cpp)
+    target_include_directories(bc7_encode_test PRIVATE runtime/src/nvn)
+    add_test(NAME bc7_encode COMMAND bc7_encode_test)
     # The host semaphores svc_nv.cpp installs when the guest SDK's NvOsSemaphoreCreate fails (the fake nvdec's
     # NULL-handle crash, docs/MOVIE-EV0005.md §16.4). Header-only, so it needs no game/runtime link.
     add_executable(nv_os_sem_test tests/nv_os_sem_test.cpp)
@@ -416,6 +419,8 @@ set(NX_RUNTIME_SOURCES
     runtime/src/nvn/nvn_pipeline_cache.cpp
     runtime/src/nvn/nvn_upload.cpp
     runtime/src/nvn/nvn_astc.cpp
+    runtime/src/nvn/nvn_astc_bc7.cpp
+    runtime/src/nvn/nvn_bc7_encode.cpp
     runtime/src/nvn/nvn_spirv_patch.cpp
     runtime/src/nvn/nvn_spirv_clip.cpp
     runtime/src/nvn/nvn_spirv_alpha.cpp
@@ -433,10 +438,14 @@ set(NX_RUNTIME_SOURCES
     runtime/src/vk_swapchain.cpp
     runtime/src/vk_gen.cpp
     runtime/src/vk_present.cpp
+    runtime/src/code_preload.cpp
+    runtime/src/settings_live.cpp
 )
 if(NX_GAME STREQUAL "bayonetta3" OR NX_GAME STREQUAL "bayonetta3prog1")
     list(APPEND NX_RUNTIME_SOURCES runtime/src/hle_fiber.cpp runtime/src/svc_opus.cpp runtime/src/movie.cpp
-         runtime/src/hle_movie.cpp runtime/src/b3_scene_clock.cpp runtime/src/b3_guest_fastpaths.cpp)
+         runtime/src/hle_movie.cpp runtime/src/b3_scene_clock.cpp runtime/src/b3_fps_counters.cpp
+         runtime/src/b3_model_lod.cpp
+         runtime/src/b3_guest_fastpaths.cpp)
     # The movie:: entry-point probe / FFmpeg vtable replacement (docs/LINUX-VERIFICATION-2026-10-22.md §8). It is only
     # compiled in for the probe or the FFmpeg build; a normal build never sees it.
     if(NX_MOVIE_VTABLE)
