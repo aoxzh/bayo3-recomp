@@ -30,6 +30,10 @@ struct AstcWorkersTestAccess {
 namespace reference {
 using namespace nx::nvn;
 
+// The production helper now writes rows `stride` bytes apart (error_block_to); the frozen reference wrote one tight
+// block of bw x bh texels.
+bool error_block(uint32_t bw, uint32_t bh, uint8_t* rgba) { return error_block_to(bw, bh, rgba, size_t(bw) * 4); }
+
 // Frozen pre-optimization formula, including the three-dimensional terms. Production passes z=0.
 uint32_t hash52(uint32_t p) {
     p ^= p >> 15, p -= p << 17, p += p << 7, p += p << 4, p ^= p >> 5, p += p << 16, p ^= p >> 7, p ^= p >> 3;

@@ -1,5 +1,7 @@
 // Standalone B3 AudioOut regression. Links the actual HLE source with synthetic kernel/device boundaries.
 // Build: c++ -std=c++20 -pthread -DNX_BAYONETTA3 -Iruntime/include tests/audio_out_test.cpp -o audio_out_test
+// The checks call the code under test (the HLE registrations among them), so they stay in a Release (-DNDEBUG) build.
+#undef NDEBUG
 #include <cassert>
 #include <cstdarg>
 #include <stdexcept>

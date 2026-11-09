@@ -42,6 +42,9 @@ import sys
 import time
 import urllib.request
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import b3_data  # noqa: E402  (tools/b3_data.py: the data step, shared with Linux)
+
 ROOT = Path(__file__).resolve().parents[1]
 WIN = Path(os.environ.get('B3_WIN_ROOT') or ROOT / 'private/win')  # B3_WIN_ROOT: another tree (tests)
 STATE = WIN / 'state.json'
@@ -421,68 +424,19 @@ def local_layout(settings, program):
     return dump_layout(folder_of(settings, program), program)
 
 
-def same_drive_link(src, dst):
-    """A hard link dst -> src; False when the two are on different drives (or the file system has no hard links)."""
-    try:
-        os.link(src, dst)
-        return True
-    except OSError as e:
-        if getattr(e, 'winerror', None) == 17 or e.errno in (18,):  # ERROR_NOT_SAME_DEVICE / EXDEV
-            return False
-        raise
-
-
-def bring_tree(src, dst, mode):
-    """Every file of src into dst by `mode` (link / copy / move); returns (files, bytes), or None when link cannot
-    work across drives. Files already there with the same size are kept, so an interrupted step resumes."""
-    files = size = 0
-    for folder, _, names in os.walk(src):
-        rel = Path(folder).relative_to(src)
-        (dst / rel).mkdir(parents=True, exist_ok=True)
-        for name in names:
-            a, b = Path(folder) / name, dst / rel / name
-            n = a.stat().st_size
-            if not (b.exists() and b.stat().st_size == n):
-                if b.exists():
-                    b.unlink()
-                if mode == 'link':
-                    if not same_drive_link(a, b):
-                        return None
-                elif mode == 'move':
-                    shutil.move(a, b)
-                else:
-                    shutil.copy2(a, b)
-            files += 1
-            size += n
-    return files, size
-
-
 def step_data(settings, log):
+    """The dump's exefs/ and romfs/ into private/win/data/<program> (tools/b3_data.py, shared with Linux)."""
     mode = settings.get('data_mode', 'link')
     for program in programs(settings):
         here = WIN / 'data' / program
-        marker = here / 'complete.json'
-        if marker.exists():
+        if (here / 'complete.json').exists():
             continue
         if mode == 'keep':
             say(f'data: {program} stays in {folder_of(settings, program)} (--data keep): this folder needs the dump')
             continue
         exefs, romfs = dump_layout(folder_of(settings, program), program)
         say(f'data: {program} by {mode} into {here}')
-        done = {}
-        for name, src in (('exefs', exefs), ('romfs', romfs)):
-            got = bring_tree(src, here / name, mode)
-            if got is None:
-                shutil.rmtree(here, ignore_errors=True)
-                say(f'data: {src} is on another drive, so it cannot be hard-linked; it stays where it is. '
-                    f'`setup --only data --data copy` copies it here instead (it takes as much space again)')
-                break
-            done[name] = {'files': got[0], 'bytes': got[1], 'from': str(src)}
-        else:
-            save(marker, {'mode': mode, **done, 'at': time.strftime('%Y-%m-%d %H:%M:%S')})
-            gb = sum(d['bytes'] for d in done.values()) / 1e9
-            say(f'data: {program}: {sum(d["files"] for d in done.values())} files, {gb:.1f} GB '
-                f'({"no extra space" if mode == "link" else "moved" if mode == "move" else "copied"})')
+        b3_data.bring_dump(exefs, romfs, here, mode, say=say)
 
 
 def step_verify(settings, log):
@@ -616,9 +570,96 @@ def setup(a):
         else:
             globals()[f'step_{step}'](settings, log)
         state[step] = {'at': time.strftime('%Y-%m-%d %H:%M:%S'), 'seconds': round(time.time() - started)}
+        if step in FINGERPRINTED:
+            state[step]['fingerprint'] = fingerprint(step)
         save(STATE, state)
         say(f'{step}: done in {round(time.time() - started)} s')
     say('setup complete: python tools/b3_win.py play')
+    return 0
+
+
+# ---- update ----------------------------------------------------------------------------------------------------------
+
+# What each long step's output depends on in this checkout: when a new version changes these files, `update` redoes
+# the step; when it does not, the step's output is kept and only what changed is rebuilt.
+FINGERPRINTED = {
+    'cpu': ['recomp/*.py', 'tools/prepare_bayonetta3.py', 'config/bayonetta3-1.2.0*.json'],
+    'shaders': ['tools/bayonetta3_shaders.py', 'tools/bayonetta3_shaders/**/*', 'tools/shaders/**/*',
+                'tools/gen_shaders.py'],
+}
+NOT_FINGERPRINTED = {'recomp/b3_hooks.py'}  # applied to the generated code in place (tools/refresh_b3_hooks.py)
+
+
+def fingerprint(step):
+    h = hashlib.sha256()
+    files = sorted({f for pattern in FINGERPRINTED[step] for f in ROOT.glob(pattern)
+                    if f.is_file() and '__pycache__' not in f.parts})
+    for f in files:
+        rel = f.relative_to(ROOT).as_posix()
+        if rel in NOT_FINGERPRINTED:
+            continue
+        h.update(rel.encode() + bytes(1) + f.read_bytes() + bytes(1))
+    return h.hexdigest()
+
+
+def update_plan(state):
+    """What `update` will do: [(step, why)]."""
+    plan = []
+    for step in FINGERPRINTED:
+        recorded = state.get(step, {}).get('fingerprint')
+        if recorded and recorded != fingerprint(step):
+            plan.append((step, 'its tools changed: made again'))
+    if not any(s == 'cpu' for s, _ in plan):
+        plan.append(('hooks', 'new runtime hooks applied to the generated code in place'))
+    plan.append(('build', 'only the changed files compile again'))
+    plan.append(('link', 'the data roots'))
+    return plan
+
+
+def update(a):
+    """After a new version of this checkout (a pull, a new release unpacked over it): bring the build up to date
+    without a full setup. Shaders and the generated C++ are kept unless the tools that make them changed."""
+    settings, state = load(SETTINGS, {}), load(STATE, {})
+    if not all(step in state for step in STEPS):
+        raise SetupError('not set up yet: python tools/b3_win.py setup --dump <your dump folder>')
+    plan = update_plan(state)
+    for step, why in plan:
+        say(f'update: {step}: {why}')
+    if a.check:
+        return 0
+    log = WIN / 'logs' / f'update-{time.strftime("%Y%m%d-%H%M%S")}.log'
+    log.parent.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime('%Y%m%d-%H%M%S')
+    for step, _ in plan:
+        started = time.time()
+        if step in FINGERPRINTED:
+            for program in programs(settings):  # set the old output aside; the step makes it again
+                old = WIN / ('cpu' if step == 'cpu' else 'shaders') / program
+                if old.exists():
+                    old.rename(old.with_name(f'{program}.before-{stamp}'))
+            globals()[f'step_{step}'](settings, log)
+            for program in programs(settings):
+                shutil.rmtree(WIN / ('cpu' if step == 'cpu' else 'shaders') / f'{program}.before-{stamp}',
+                              ignore_errors=True)
+        elif step == 'hooks':
+            found = tools(settings)
+            exefs, _ = local_layout(settings, 'b3')
+            run([found['python'], ROOT / 'tools/refresh_b3_hooks.py', WIN / 'cpu/b3/gen', '--nso', exefs / 'main',
+                 '--apply', '--backup', WIN / f'hooks-backup-{stamp}'], log)
+        elif step == 'build':
+            step_build(settings, log, a.jobs)
+        else:
+            step_link(settings, log)
+        if step in STEPS:
+            state[step] = {'at': time.strftime('%Y-%m-%d %H:%M:%S'), 'seconds': round(time.time() - started)}
+            if step in FINGERPRINTED:
+                state[step]['fingerprint'] = fingerprint(step)
+            save(STATE, state)
+        say(f'update: {step}: done in {round(time.time() - started)} s')
+    for step in FINGERPRINTED:  # a setup from before fingerprints: what it was made from is what is here now
+        state[step].setdefault('fingerprint', fingerprint(step))
+    save(STATE, state)
+    say('update complete: python tools/b3_win.py play')
     return 0
 
 
@@ -741,9 +782,15 @@ def first_run(a):
 # What a release may hold: the repository's own tracked files, never anything derived from the game.
 PACKAGE_REFUSED = ('.pkz', '.nso', '.nca', '.nsp', '.xci', '.keys', '.npdm', '.spv', '.bk2', '.webm')
 LAUNCH_CMD = r'''@echo off
-rem Bayonetta 3 Recomp: double-click to set up from your own dump (the first time) and play.
+rem Bayonetta 3 Recomp: double-click for the launcher (Set up from your dump the first time, then Start game).
+rem The console route: Bayonetta3Recomp.cmd console (setup in this window, then the launcher).
 setlocal
 cd /d "%~dp0"
+if /i not "%~1"=="console" if exist "python\pythonw.exe" (
+    start "" "python\pythonw.exe" tools\b3_launcher.py
+    exit /b 0
+)
+if /i "%~1"=="console" shift
 set PY=
 if exist "python\python.exe" set PY=python\python.exe
 if not defined PY if defined B3_PYTHON set PY=%B3_PYTHON%
@@ -754,7 +801,7 @@ if not defined PY (
     pause
     exit /b 1
 )
-%PY% tools\b3_win.py first-run %*
+%PY% tools\b3_win.py first-run
 if errorlevel 1 pause
 endlocal
 '''
@@ -819,6 +866,10 @@ def main(argv=None):
     q = sub.add_parser('play', help='run the game (and program 1 when the picture book asks for it)')
     q.add_argument('args', nargs=argparse.REMAINDER, help='runtime arguments')
     q.set_defaults(func=play)
+    u = sub.add_parser('update', help='after a new version: rebuild only what changed (keeps shaders and C++)')
+    u.add_argument('--check', action='store_true', help='say what would be done')
+    u.add_argument('--jobs', type=int, default=0, help='parallel compile jobs (default: all cores)')
+    u.set_defaults(func=update)
     f = sub.add_parser('first-run', help="a release's double-click entry: setup from a dump you pick, then the launcher")
     f.add_argument('--dump', help='the dump folder (default: a folder picker)')
     f.add_argument('--data', choices=['link', 'copy', 'move', 'keep'], help='as for setup')

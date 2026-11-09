@@ -35,6 +35,12 @@ The runtime data root is a separate directory holding `analysis/`, `spirv/`, `ex
 
 Install Clang, CMake 3.25+, Ninja, the SDL3 development files, Vulkan headers and loader, and a working GPU driver, along with host libopus and ffmpeg. Vulkan headers must be compatible with the project's recorded 1.4.357 dependency. If SDL3 lives outside the normal search paths, set `CMAKE_PREFIX_PATH`.
 
+To keep the whole game inside this folder (so it can be moved, and the dump is no longer needed), bring the dump in
+first and point the generation at the result: `python3 tools/b3_data.py --dump <your dump folder>` hard-links
+`exefs/` and `romfs/` into `private/data/b3/` (same drive: no extra space; `--mode copy` for another drive), then
+use `--exefs private/data/b3/exefs --romfs private/data/b3/romfs` for `tools/prepare_bayonetta3.py`. Program 1 the
+same way with `--to private/data/prog1`.
+
 Build Release into the directory the player launcher uses; the development build helper defaults elsewhere:
 
 ```bash
@@ -110,7 +116,14 @@ rename a folder to start with `-` to switch it off. The log lists the mods it fo
 `dist\Bayonetta3Recomp-<version>-windows-x64.zip` and its `.sha256`. It holds the tracked files only (it refuses
 anything under `private/` and game file formats) and a `Bayonetta3Recomp.cmd` that, on first double-click, asks for
 the dump folder, runs the setup and then opens the launcher (`b3_win.py first-run`). Make releases from the public
-tree.
+tree: its CI (`.github/workflows/ci.yml`) runs the unit tests, builds this zip with a bundled Python on every push,
+and a `v*` tag publishes it as a GitHub Release.
+
+**After updating** (a pull, or a newer release unpacked over the folder): `python tools\b3_win.py update`, or
+**Rebuild** in the launcher. It applies new runtime hooks to the generated code in place and rebuilds only what
+changed; the generated C++ and the shaders are made again only when the tools that make them changed
+(`update --check` says what it will do). The launcher's home screen offers **Set up from my dump** while nothing is
+built, with the setup's progress in the window.
 
 `play` reads `private/b3.conf` (created from `config/b3.conf.example` on first launch) and starts the game. When the
 picture book is opened it starts the Bayonetta Origins prologue and returns to Bayonetta 3 afterwards; both share

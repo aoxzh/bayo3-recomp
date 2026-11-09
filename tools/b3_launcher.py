@@ -27,7 +27,10 @@ import subprocess
 import sys
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
+import queue
+import re
+import threading
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import b3_launcher_config as cfg  # noqa: E402
@@ -633,6 +636,12 @@ class Launcher(tk.Tk):
         self.pad_tick = 0
         self.log_shown = False
         self._layout_job = None
+        # A setup or update run through tools/b3_win.py (Windows): its output lines, the step it is on, the progress.
+        self.task = None
+        self.task_kind = ''
+        self.task_lines = queue.Queue()
+        self.task_log = []
+        self.task_step, self.task_done, self.task_total = '', 0, 1
 
         _pick_fonts(self)    # before any widget: every font and canvas length below reads the result
         self.backdrop = Backdrop()
@@ -662,6 +671,7 @@ class Launcher(tk.Tk):
         self.bind('<Return>', lambda e: self._home_enter(e))
         self.after(120, self._poll_pad)
         self.after(300, self._poll_proc)
+        self.after(300, self._poll_task)
         self.after(1000, self._poll_log)
 
     def destroy(self):
@@ -744,13 +754,16 @@ class Launcher(tk.Tk):
         self._text(left, px(178), 'Native build of the Switch game · bring your own game files', (UI, 10), MUTED)
         # The menu: large serif words, the selected one gold with a cyan diamond, as a pad-first menu reads.
         labels = {'play': 'Stop game' if self.proc is not None else 'Start game', 'settings': 'Settings',
-                  'log': 'Hide game log' if self.log_shown else 'Game log', 'quit': 'Quit'}
+                  'log': 'Hide game log' if self.log_shown else 'Game log', 'quit': 'Quit',
+                  'setup': 'Setting up…' if self.task else 'Set up from my dump',
+                  'rebuild': 'Rebuilding…' if self.task else 'Rebuild'}
         step = px(54)
-        top = h - px(84) - step * (len(self.MENU) - 1)
-        for i, key in enumerate(self.MENU):
+        menu = self._menu()
+        top = h - px(84) - step * (len(menu) - 1)
+        for i, key in enumerate(menu):
             y = top + i * step
             selected = i == self.menu_index
-            big = key == 'play'
+            big = key in ('play', 'setup')
             font = (DISPLAY, 26 if big else 19, 'bold' if big and selected else 'normal')
             item = self._text(left, y, labels[key], font, GOLD if selected else (TEXT if big else MUTED),
                               tags=(f'menu{i}',))
@@ -775,6 +788,11 @@ class Launcher(tk.Tk):
                 x1 = c.bbox(item)[0] - px(16)
                 c.create_oval(x1, y - px(4), x1 + px(8), y + px(4), fill=dot, outline='', tags=('chrome',))
             y -= px(26)
+        if self.task is not None:  # the setup or update's progress, above the state lines
+            bar_w, bar_y = px(300), y - px(10)
+            c.create_rectangle(right - bar_w, bar_y, right, bar_y + px(6), fill=LINE, outline='', tags=('chrome',))
+            done = right - bar_w + int(bar_w * min(1.0, self.task_done / max(1, self.task_total)))
+            c.create_rectangle(right - bar_w, bar_y, done, bar_y + px(6), fill=CYAN, outline='', tags=('chrome',))
         self._text(right, h - px(40), '↑ ↓ choose   ·   Enter / A confirm   ·   Esc quit', (UI, 8), FAINT, anchor='e')
         if self.log_shown:
             x1, y1 = int(w * 0.46), px(150)
@@ -869,7 +887,7 @@ class Launcher(tk.Tk):
 
     def _arrow(self, event, step):
         if self.view == 'home' and not isinstance(event.widget, (tk.Entry, tk.Text)):
-            self._menu_select((self.menu_index + step) % len(self.MENU))
+            self._menu_select((self.menu_index + step) % len(self._menu()))
 
     def _home_enter(self, event):
         if self.view == 'home' and event.widget in (self, self.canvas):
@@ -880,9 +898,23 @@ class Launcher(tk.Tk):
             self.menu_index = index
             self.layout()
 
+    def _menu(self):
+        """The home menu. On Windows with tools/b3_win.py: Set up first, then Start game and Rebuild."""
+        if os.name != 'nt' or not (self.root / 'tools/b3_win.py').is_file():
+            return self.MENU
+        if not cfg.install_state(self.root)['built']:
+            return ('setup', 'settings', 'log', 'quit')
+        return ('play', 'rebuild', 'settings', 'log', 'quit')
+
     def _menu_activate(self):
-        key = self.MENU[self.menu_index]
-        if key == 'play':
+        menu = self._menu()
+        self.menu_index = min(self.menu_index, len(menu) - 1)
+        key = menu[self.menu_index]
+        if key == 'setup':
+            self.run_setup()
+        elif key == 'rebuild':
+            self.run_task('update', ['update'])
+        elif key == 'play':
             self.play_or_stop()
         elif key == 'settings':
             self.show_settings()
@@ -954,6 +986,8 @@ class Launcher(tk.Tk):
             self.canvas.itemconfigure(self.help_item, text=self.help_text)
 
     def _run_state(self):
+        if self.task is not None:
+            return self.status_text
         if self.proc is not None:
             return 'Running' if not self.stopping else 'Stopping…'
         if self.status_bad:
@@ -992,6 +1026,87 @@ class Launcher(tk.Tk):
         self._load_values()
         self._set_status('Defaults restored')
 
+    # -- setup and update (Windows: tools/b3_win.py) ---------------------------------------------------------------
+    def run_setup(self):
+        if self.task is not None:
+            return
+        dump = filedialog.askdirectory(parent=self, title='Your Bayonetta 3 1.2.0 dump: the folder with exefs and romfs')
+        if not dump:
+            return
+        if not messagebox.askokcancel('Set up', 'This builds the game from your dump on this PC. The first time takes '
+                                      'about an hour; if you close the launcher, Set up resumes where it stopped.',
+                                      parent=self):
+            return
+        self.run_task('setup', ['setup', '--dump', dump])
+
+    def run_task(self, kind, args):
+        if self.task is not None or self.proc is not None:
+            return
+        self.task_kind, self.task_log = kind, []
+        self.task_step, self.task_done = '', 0
+        self.task_total = 7 if kind == 'setup' else 1
+        flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+        try:
+            self.task = subprocess.Popen([sys.executable, str(self.root / 'tools/b3_win.py'), *args],
+                                         cwd=str(self.root), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         text=True, encoding='utf-8', errors='replace', creationflags=flags)
+        except OSError as exc:
+            self._set_status(f'Could not start {kind}: {exc}', bad=True)
+            return
+
+        def read(stream=self.task.stdout, lines=self.task_lines):
+            for line in stream:
+                lines.put(line.rstrip())
+        threading.Thread(target=read, daemon=True).start()
+        self.log_shown = True
+        self._set_status(f'{kind.capitalize()}: starting')
+        self.layout()
+
+    def _task_line(self, line):
+        """Progress from b3_win.py's lines: `b3: <step>: done in N s` (setup), `b3: update: <step>: ...` (update)."""
+        self.task_log = (self.task_log + [line])[-200:]
+        m = re.match(r'^b3: (?:update: )?(\w+): (.*)$', line)
+        if not m:
+            return
+        step, rest = m.groups()
+        if self.task_kind == 'update' and line.startswith('b3: update: ') and not rest.startswith('done'):
+            self.task_total = max(self.task_total, sum(1 for l in self.task_log
+                                                       if l.startswith('b3: update: ') and ': done' not in l))
+        if rest.startswith('done'):
+            self.task_done += 1
+        else:
+            self.task_step = step
+
+    def _poll_task(self):
+        changed = False
+        while True:
+            try:
+                line = self.task_lines.get_nowait()
+            except queue.Empty:
+                break
+            self._task_line(line)
+            changed = True
+        if changed and self.log_shown:
+            self.log_view.configure(state='normal')
+            self.log_view.delete('1.0', 'end')
+            self.log_view.insert('end', '\n'.join(self.task_log[-80:]))
+            self.log_view.see('end')
+            self.log_view.configure(state='disabled')
+        if self.task is not None and self.task.poll() is not None and self.task_lines.empty():
+            code, kind = self.task.returncode, self.task_kind
+            self.task = None
+            if code == 0:
+                self._set_status(f'{kind.capitalize()} finished: ready to play')
+            else:
+                last = next((l for l in reversed(self.task_log) if 'error' in l.lower()), f'exit code {code}')
+                self._set_status(f'{kind.capitalize()} stopped: {last}', bad=True)
+            self.menu_index = 0
+            self.layout()
+        elif changed and self.task is not None:
+            self._set_status(f'{self.task_kind.capitalize()}: {self.task_step or "starting"} '
+                             f'({self.task_done}/{self.task_total})')
+        self.after(300, self._poll_task)
+
     def play_or_stop(self):
         if self.proc is None:
             self.play()
@@ -999,7 +1114,7 @@ class Launcher(tk.Tk):
             self.stop()
 
     def play(self):
-        if self.proc is not None:
+        if self.proc is not None or self.task is not None:
             return
         state = cfg.install_state(self.root)
         if not state['built']:
@@ -1177,7 +1292,7 @@ class Launcher(tk.Tk):
             return
         if self.view == 'home':
             if action in ('up', 'down'):
-                self._menu_select((self.menu_index + (-1 if action == 'up' else 1)) % len(self.MENU))
+                self._menu_select((self.menu_index + (-1 if action == 'up' else 1)) % len(self._menu()))
             elif action == 'a':
                 self._menu_activate()
             return

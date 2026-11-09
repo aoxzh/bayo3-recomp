@@ -164,6 +164,18 @@ def test_data_step_and_relink():
         check(w.links_ok(settings), 'relinked')
 
 
+def test_update_plan():
+    with tempfile.TemporaryDirectory() as tmp:
+        w = fresh(tmp)
+        same = {s: {'fingerprint': w.fingerprint(s)} for s in w.FINGERPRINTED}
+        eq([s for s, _ in w.update_plan(same)], ['hooks', 'build', 'link'], 'unchanged tools: hooks, build, link')
+        changed = dict(same, cpu={'fingerprint': 'old'})
+        eq([s for s, _ in w.update_plan(changed)], ['cpu', 'build', 'link'], 'changed recompiler: cpu again')
+        legacy = {'cpu': {}, 'shaders': {}}
+        eq([s for s, _ in w.update_plan(legacy)], ['hooks', 'build', 'link'], 'no fingerprint yet: kept')
+        check('recomp/b3_hooks.py' in w.NOT_FINGERPRINTED, 'hook table changes do not regenerate')
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith('test_') and callable(v)]
     for test in tests:

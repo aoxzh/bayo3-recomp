@@ -1,0 +1,81 @@
+# Unit tests on Linux, the Python tools and the Windows release zip on Windows, and a GitHub Release for a v* tag.
+# No game data exists here: the game itself is generated and built on the player's machine from their own dump, so
+# CI builds the runtime's standalone unit tests (CMake NX_TESTS, which builds only the tests without generated code)
+# and the tools, never the game.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build python3-tk
+      - name: Vulkan headers (the pinned version, docs/BUILD.md)
+        run: git clone --depth 1 --branch v1.4.357 https://github.com/KhronosGroup/Vulkan-Headers.git "$RUNNER_TEMP/vk"
+      - name: Configure (unit tests only)
+        run: >
+          cmake -S . -B build-ci -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          -DNX_GAME=bayonetta3 -DNX_TESTS=ON -DNX_VULKAN_INCLUDE="$RUNNER_TEMP/vk/include"
+      - name: Build
+        run: cmake --build build-ci --parallel
+      - name: Unit tests
+        run: ctest --test-dir build-ci --output-on-failure
+      - name: Python tools
+        run: |
+          python3 tests/test_b3_win.py
+          python3 tests/test_b3_launcher_config.py
+          python3 tests/test_b3_launcher_task.py
+          python3 tools/b3_data.py --help > /dev/null
+
+  windows-package:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the zip is named by git describe
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Python tools
+        run: |
+          python tests/test_b3_win.py
+          python tests/test_b3_launcher_config.py
+          python tests/test_b3_launcher_task.py
+      - name: Release zip (with its own Python)
+        shell: pwsh
+        run: python tools/b3_win.py package --out dist --python "$env:pythonLocation"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: dist/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux-tests, windows-package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: dist
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY"
+          --title "$GITHUB_REF_NAME" --generate-notes
