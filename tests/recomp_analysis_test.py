@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The recompiler's jump-table analysis: a flags-free branch between the cmp and its b.hi.
 
-Bayonetta 3's main+3e6980 guards a 269-entry table with
+Bayonetta 3's main+3e6980 guards a 270-entry table with
     cmp w22, #0x10d / cbz w10, ... / b.hi default
 and the scan for the guarding branch stopped at the cbz (it reads a register, not NZCV), so the
 table fell back to the 256-entry limit: index 0x102 became a call into the middle of the function
@@ -14,15 +14,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from recomp.analysis import Analysis, Function, _bound, _jump_table
 
-COUNT = 0x10D + 1   # cmp w22, #0x10d bounds the index to 0..0x10d
+COUNT = 0x10D + 1   # cmp w22, #0x10d with b.hi admits the index 0..0x10d: 270 entries
 TABLE = 0x3000      # .rodata, one byte per entry
 ANCHOR = 0x2000     # adr x10, #0x2000; a target is ANCHOR + entry << 2
 F_START, F_END = 0x1000, 0x2500
 
 
 def table_byte(k):
-    """The real table is 269 entries over few targets; the last 14 entries reach targets no earlier
-    entry does, so reading only 256 entries loses them."""
+    """The real table is 270 entries over few targets; entries 256..269 reach 14 targets no earlier
+    entry does, so reading only 256 entries (the unbounded fallback) loses them."""
     return k % 34 if k < 256 else 34 + (k - 256)
 
 
@@ -81,7 +81,7 @@ assert bound("tbz w10, #1, #0x2400") == COUNT
 assert bound("nop") == COUNT
 assert bound(cmp_and_bound=(("cmp", "w22, #0x10d"), ("b.hs", "#0x2400"))) == COUNT - 1
 
-# The same table: all 269 entries are read, including the target only indices 256..268 reach.
+# The same table: all 270 entries are read, including the targets only indices 256..269 reach.
 tg = targets()
 assert tg is not None, "the table was not resolved"
 assert len(tg) == 48, len(tg)
@@ -100,4 +100,4 @@ assert len(targets("b.eq #0x2400")) == 34, len(targets("b.eq #0x2400"))
 assert bound(cmp_and_bound=(("cmp", "w23, #0x10d"), ("b.hi", "#0x2400"))) is None
 assert bound(cmp_and_bound=(("cmp", "w22, #0x10"), ("b.hi", "#0x2400"))) == 0x11
 
-print("recomp/analysis.py: a flags-free branch between cmp and b.hi keeps the 269-entry bound")
+print("recomp/analysis.py: a flags-free branch between cmp and b.hi keeps the 270-entry bound")
