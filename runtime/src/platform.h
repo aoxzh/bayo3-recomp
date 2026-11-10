@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 
 namespace nx::plat {
@@ -138,7 +140,18 @@ int model_lod();  // 1: model_lod = highest (b3_model_lod.cpp), 0: the game's ow
 void set_model_lod(int v);
 // NX_HANDHELD: the console mode the game is told (1280x720 handheld; else docked, 1600x900 for this game). Empty, 0,
 // false, off or no mean docked: only the variable's presence used to count, so NX_HANDHELD=0 ran handheld.
-bool handheld_mode();
+// Inline, so the service sources that tests compile on their own (am_lifecycle_test includes svc_am.cpp) need nothing
+// else linked.
+inline bool handheld_mode() {
+    static const bool on = [] {
+        const char* e = std::getenv("NX_HANDHELD");
+        if (!e || !*e) return false;
+        for (const char* off : {"0", "false", "off", "no"})
+            if (std::strcmp(e, off) == 0) return false;
+        return true;
+    }();
+    return on;
+}
 void start_code_preload();
 void lower_thread_priority();  // the calling thread at the host's lowest (background work; code_preload.cpp)  // read the program's code into memory in the background (code_preload.cpp)
 // Ends the process when its memory footprint passes NX_MEM_LIMIT_GB (default 8); logs it every 30 s (macOS).

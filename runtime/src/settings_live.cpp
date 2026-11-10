@@ -24,15 +24,4 @@ int model_lod() {
 
 void set_model_lod(int v) { g_model_lod.store(v ? 1 : 0, std::memory_order_relaxed); }
 
-bool handheld_mode() {
-    static const bool on = [] {
-        const char* e = std::getenv("NX_HANDHELD");
-        if (!e || !*e) return false;
-        for (const char* off : {"0", "false", "off", "no"})
-            if (std::strcmp(e, off) == 0) return false;
-        return true;
-    }();
-    return on;
-}
-
 }  // namespace nx::plat
