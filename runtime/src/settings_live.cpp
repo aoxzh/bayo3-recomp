@@ -1,6 +1,7 @@
 // Player settings that change while the game runs (platform.h "live settings"): read at start from the player's
 // settings (NX_<KEY> on PC, config.txt on Android), changed by the settings panel, read by the game hooks.
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -22,5 +23,16 @@ int model_lod() {
 }
 
 void set_model_lod(int v) { g_model_lod.store(v ? 1 : 0, std::memory_order_relaxed); }
+
+bool handheld_mode() {
+    static const bool on = [] {
+        const char* e = std::getenv("NX_HANDHELD");
+        if (!e || !*e) return false;
+        for (const char* off : {"0", "false", "off", "no"})
+            if (std::strcmp(e, off) == 0) return false;
+        return true;
+    }();
+    return on;
+}
 
 }  // namespace nx::plat

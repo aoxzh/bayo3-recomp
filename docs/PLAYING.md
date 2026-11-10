@@ -165,7 +165,7 @@ mkdir -p private
 [ -f private/b3.conf ] || cp config/b3.conf.example private/b3.conf
 ```
 
-Use the prefixed MinGW compiler drivers rather than an unrelated `clang` from PATH. Windows needs `libopus.dll` next to the executable; video uses Media Foundation and needs VP9 decoding support. In `private/b3.conf`, a useful starting point is `handheld=1`, `resolution=1280x720`, `render_res=1280x720`, `headless=0`, `mute=0`. `resolution` requests the host window; in the current Windows measurements `render_res` controls the internal render size. Increasing only the window size is not a 1080p rendering benchmark.
+Use the prefixed MinGW compiler drivers rather than an unrelated `clang` from PATH. Windows needs `libopus.dll` next to the executable; video uses Media Foundation and needs VP9 decoding support. In `private/b3.conf`, a useful starting point is `resolution=1600x900`, `headless=0`, `mute=0`. `resolution` is the host window; the game renders at its console size, 1600x900 docked or 1280x720 with `handheld=1`, and the picture is scaled to the window, so a larger window is not a higher internal resolution (`render_res` and `render_scale` do not change it for this game).
 
 ```bash
 export B3_WIN_GAME_ROOT="$PWD/private/game"

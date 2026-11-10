@@ -68,9 +68,9 @@ RENDER_SCALES = (
     ('1.5', '1.5'),
 )
 
-FPS_CAPS = (('', 'Runtime default (platform/display dependent)'), ('30', '30 fps'))
-# NX_DISPLAY_HZ: the display clock the game paces itself by. Bayonetta 3 is delta-timed, so above 60 it runs smoother,
-# not faster. Absent: the panel's own rate.
+FPS_CAPS = (('', "The game's own rule (60, 30 when heavy)"), ('30', '30 fps'))
+# NX_DISPLAY_HZ: the display clock the game paces itself by. Above 60 the runtime converts the gameplay step and the
+# game's frame-counted windows to real time (b3_scene_clock.cpp, b3_fps_counters.cpp). Absent: the panel's own rate.
 DISPLAY_HZ = (('', "The display's own rate"), ('60', '60 Hz'), ('90', '90 Hz'), ('120', '120 Hz'), ('144', '144 Hz'))
 ANISO = (('', "The game's own"), ('2', '2x'), ('4', '4x'), ('8', '8x'), ('16', '16x'))
 ON_OFF = (('1', 'On'), ('0', 'Off'))
@@ -98,8 +98,8 @@ class Setting:
 
 
 SETTINGS = (
-    Setting('resolution', 'Resolution', 'choice', 'video', default='1600x900', choices=RESOLUTIONS,
-            help='Host window size. Internal render resolution is platform dependent; see the Playing guide.'),
+    Setting('resolution', 'Window size', 'choice', 'video', default='1600x900', choices=RESOLUTIONS,
+            help='The window. The game renders at 1600 x 900 (1280 x 720 in handheld mode) and is scaled to it.'),
     Setting('fullscreen', 'Fullscreen', 'bool', 'video', default='0',
             help='Start fullscreen; F11 or Alt+Enter toggles it.'),
     Setting('fsr', 'FSR 1 upscale', 'bool', 'video', default='0',
@@ -108,8 +108,8 @@ SETTINGS = (
     Setting('fps_cap', 'Frame rate cap', 'choice', 'video', choices=FPS_CAPS,
             help='Optionally cap at 30 fps; used in the documented Snapdragon 8 Gen 2 / Adreno 740 combat tests. See Performance for heat-related limits.'),
     Setting('display_hz', 'Frame rate', 'choice', 'video', choices=DISPLAY_HZ,
-            help='The rate the game paces itself by. It is delta-timed, so 90 or 120 is smoother, not faster; fights '
-                 'that cannot keep up settle where they can.'),
+            help='The rate the game paces itself by. Above 60 the gameplay and its timing windows are kept at real '
+                 'time (hit-stops are a little shorter); fights that cannot keep up settle where they can.'),
     Setting('fifo', 'V-sync', 'bool', 'video', default='0',
             help='Wait for the display refresh (no tearing, a little more latency). Off shows the newest frame at each '
                  'refresh without waiting.'),
@@ -132,15 +132,15 @@ SETTINGS = (
     Setting('language', 'Language', 'choice', 'system', default='en-US', choices=LANGUAGES,
             help='The game text language.'),
     Setting('handheld', 'Handheld mode', 'bool', 'system', default='0',
-            help='The game renders for 1280 x 720 instead of docked 1080p (a lighter GPU load).'),
+            help='The game renders 1280 x 720 instead of docked 1600 x 900 (a lighter GPU load).'),
     Setting('log', 'Log file', 'text', 'system', help='Default: <repo>/private/b3.log.'),
     Setting('discord_app_id', 'Discord application id', 'text', 'system',
             help='Windows: Rich Presence ("Bayonetta 3" or "The Old Picture Book", and since when) through your own '
                  'Discord application (discord.com/developers). Empty: off.'),
     Setting('mute', 'Mute', 'bool', 'audio', default='0', help='No audio output.'),
     Setting('render_res', 'Display resolution answer', 'choice', 'advanced', choices=RENDER_RES,
-            help='NX_RENDER_RES: internal render/display resolution on supporting paths. Keep it distinct from the '
-                 'host window size and follow the platform settings in the Playing guide.'),
+            help='NX_RENDER_RES: the resolution reported to the game. Other ports render at it; Bayonetta 3 renders '
+                 'at its own console size, so this changes nothing here.'),
     Setting('render_scale', 'Resolution scale', 'choice', 'advanced', choices=RENDER_SCALES,
             help='NX_RENDER_SCALE: a factor on the reported resolution. Same caveat as above.'),
     Setting('ultrawide', 'Ultrawide', 'bool', 'advanced', default='0',

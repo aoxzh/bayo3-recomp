@@ -1,6 +1,7 @@
 // Small host services: parental controls, add-on content, logging, power and error context.
 #include <cstdlib>
 #include "ipc.h"
+#include "platform.h"
 
 namespace nx {
 
@@ -102,7 +103,7 @@ ServiceRegistrar r_apm("apm", [] {
     return make("apm", [](Service& s) {
         s.cmds[0] = [](IpcCtx& c) { c.push_object(power_session()); return 0u; };  // OpenSession
         s.cmds[1] = [](IpcCtx& c) {  // GetPerformanceMode: boost (docked), normal with NX_HANDHELD (svc_am.cpp)
-            c.push<uint32_t>(std::getenv("NX_HANDHELD") ? 0 : 1);
+            c.push<uint32_t>(nx::plat::handheld_mode() ? 0 : 1);
             return 0u;
         };
     });

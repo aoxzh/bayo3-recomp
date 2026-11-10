@@ -528,14 +528,18 @@ def setup(a):
     settings = load(SETTINGS, {})
     if a.dump:
         settings['dump'] = str(Path(a.dump).resolve())
+    had_program1 = bool(settings.get('program1'))
     if a.program1:
         settings['program1'] = str(Path(a.program1).resolve())
     if a.data:
         settings['data_mode'] = a.data
-    elif a.dump and 'program1' not in settings:
-        p1 = child(Path(a.dump), 'program1')  # Witch Time's layout: the dump's program1/ folder
+    if not a.program1 and 'program1' not in settings and settings.get('dump'):
+        p1 = child(Path(settings['dump']), 'program1')  # Witch Time's layout: the dump's program1/ folder
         if p1:
             settings['program1'] = str(p1.resolve())
+    # Program 1 added to a finished setup: the steps run again from verify. Each one skips what a program already has
+    # (its generated code, shaders, data), so only program 1 is made.
+    program1_added = not had_program1 and bool(settings.get('program1'))
     for item in a.tool or []:
         name, _, value = item.partition('=')
         settings.setdefault('tools', {})[name] = str(Path(value).resolve())
@@ -561,6 +565,10 @@ def setup(a):
     log = WIN / 'logs' / f'setup-{time.strftime("%Y%m%d-%H%M%S")}.log'
     log.parent.mkdir(parents=True, exist_ok=True)
     say(f'log: {log}')
+    if program1_added and not a.only and not a.from_step:
+        say('setup: program 1 (the picture book) is new: making it')
+        for step in STEPS[STEPS.index('verify'):]:
+            state.pop(step, None)
     for step in STEPS:
         if step not in chosen or (not a.only and not a.from_step and step in state):
             continue
@@ -622,6 +630,14 @@ def update(a):
     settings, state = load(SETTINGS, {}), load(STATE, {})
     if not all(step in state for step in STEPS):
         raise SetupError('not set up yet: python tools/b3_win.py setup --dump <your dump folder>')
+    if not settings.get('program1') and settings.get('dump') and child(Path(settings['dump']), 'program1'):
+        # The picture book's program put into the dump after the setup: setup makes it (verify .. link, program 1).
+        say('update: the dump now has program1/ (the picture book): setting it up first')
+        rc = setup(argparse.Namespace(dump=None, program1=None, tool=None, only=None, from_step=None, status=False,
+                                      data=None, jobs=a.jobs))
+        if rc:
+            return rc
+        state = load(STATE, {})
     plan = update_plan(state)
     for step, why in plan:
         say(f'update: {step}: {why}')
@@ -688,6 +704,30 @@ def conf_env(path):
     return env
 
 
+BOOK_NOT_BUILT = (
+    'The Old Picture Book starts a second program of the game, the Bayonetta Origins prologue (program 1 of the '
+    '1.2.0 update), and it was not built: your dump had no program1 folder when you set up.\n\n'
+    'Put program 1 of your own 1.2.0 update in a program1 folder beside exefs and romfs (its own exefs and romfs), '
+    'then run Rebuild in the launcher (or: python tools\\b3_win.py setup --program1 <folder>).\n\n'
+    'The game starts again now; your save is kept.\n\n'
+    '“古老的绘本”会启动游戏的第二个程序（1.2.0 更新里的 program 1，Bayonetta Origins 序章），而它没有被构建：'
+    '设置时你的 dump 里没有 program1 文件夹。\n\n'
+    '把你自己的 1.2.0 更新里的 program 1 放进 exefs、romfs 旁边的 program1 文件夹（内含它自己的 exefs 和 romfs），'
+    '再在启动器里点 Rebuild（或运行 python tools\\b3_win.py setup --program1 <文件夹>）。\n\n'
+    '游戏现在会重新启动，存档不受影响。')
+
+
+def book_not_built():
+    """A message box over the closed game: why the picture book returned to the title (Windows; elsewhere the log)."""
+    if os.name != 'nt' or os.environ.get('NX_HEADLESS'):
+        return
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, BOOK_NOT_BUILT, 'Bayonetta 3: the Old Picture Book', 0x40 | 0x40000)
+    except Exception:
+        pass
+
+
 def links_ok(settings):
     """Whether every data-root junction still reaches what it should: junctions hold absolute paths, so after the
     folder was moved (or the drive letter changed) they point at the old place."""
@@ -739,6 +779,7 @@ def play(a):
         target = 1 if (kind, value) == ('0', '1') else 0
         if target == 1 and not exes[1].exists():
             say('the picture book needs program 1: setup --program1 <folder>; returning to the game')
+            book_not_built()  # the game window just closed: say why, instead of what looks like a crash (issue #2)
             target = 0
         channel = roots[program] / 'user_channel.bin'
         if channel.exists():

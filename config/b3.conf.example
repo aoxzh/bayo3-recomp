@@ -8,9 +8,10 @@
 # mouse_camera, where 0 is a value. The "off" entries below document their switches with 0.
 
 # ---- Picture ---------------------------------------------------------------------------------
-# Host window sizing/aspect request. Window size and internal render size are distinct.
-# Platform behavior differs; see docs/PLAYING.md before comparing resolution benchmarks.
-# `auto` requests a display-fitting 16:9 size on supporting platforms.
+# The window size. The game itself renders at its console size, 1600x900 docked (handheld=0) or
+# 1280x720 handheld (handheld=1), and the picture is scaled to the window (fsr=1 sharpens that).
+# A larger window is not a higher internal resolution. `auto` uses the largest 16:9 area that fits
+# the display, the right choice on a tablet or phone in desktop mode.
 resolution=1600x900
 fullscreen=0             # 1: fullscreen (F11 or Alt+Enter toggles at any time)
 fsr=0                    # 1: FidelityFX Super Resolution 1 when the window is larger than the render
@@ -48,7 +49,7 @@ mouse_invert_y=0         # 1: moving the mouse up turns the camera down
 
 # ---- System ----------------------------------------------------------------------------------
 language=en-US           # en-US, en-GB, ja, fr, fr-CA, de, it, es, es-419, ko, ru, zh-Hans, zh-Hant
-handheld=0               # 1: answer the game as a handheld console (720p profile). Use 1 on the Steam Deck
+handheld=0               # 1: the game renders 1280x720 (handheld) instead of 1600x900 (docked): lighter; Steam Deck
 # log=/path/to/b3.log   # default: <repo>/private/b3.log
 
 gpu_clock=               # Optional Steam Deck GPU clock in MHz; empty leaves the default clock unchanged.
@@ -60,9 +61,9 @@ discord_app_id=          # Windows: Discord Rich Presence through your own Disco
 mute=0                   # 1: no audio output
 
 # ---- Advanced --------------------------------------------------------------------------------
-# Render-size overrides are platform dependent. Current Windows measurements use render_res
-# for internal rendering and resolution for host-window aspect; older Mac tests did not see
-# the same effect. See docs/PLAYING.md and docs/PERFORMANCE.md for measured conditions.
+# These are for other ports and for debugging. Bayonetta 3 renders at its own console size (above),
+# so it ignores the display-resolution answer that render_res and render_scale change: they do
+# nothing here (docs/archive/PERF-2026-10-23.md measured it). handheld above picks 900p or 720p.
 render_res=              # console render size: 1920x1080 docked, 1280x720 handheld; empty = default
 render_scale=            # multiplier on the console size, 0.25..2.0; empty = 1.0
 ultrawide=0              # 1: experimentally widen the render to the window's aspect

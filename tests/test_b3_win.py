@@ -176,6 +176,32 @@ def test_update_plan():
         check('recomp/b3_hooks.py' in w.NOT_FINGERPRINTED, 'hook table changes do not regenerate')
 
 
+def test_program1_added_after_setup():
+    import argparse
+    with tempfile.TemporaryDirectory() as tmp:
+        w = fresh(tmp)
+        dump = Path(tmp) / 'dump'
+        for d in ('exefs', 'romfs'):
+            (dump / d).mkdir(parents=True)
+        w.save(w.SETTINGS, {'dump': str(dump)})
+        w.save(w.STATE, {s: {'at': 'before'} for s in w.STEPS})
+        ran = []
+        for s in w.STEPS:
+            setattr(w, f'step_{s}', (lambda name: lambda *args: ran.append(name))(s))
+        args = argparse.Namespace(dump=None, program1=None, tool=None, only=None, from_step=None, status=False,
+                                  data=None, jobs=0)
+        w.setup(args)
+        eq(ran, [], 'a finished setup without program 1 does nothing')
+        (dump / 'program1/exefs').mkdir(parents=True)
+        (dump / 'program1/romfs').mkdir(parents=True)
+        w.setup(args)
+        eq(ran, w.STEPS[w.STEPS.index('verify'):], 'program1/ appearing in the dump makes verify .. link run again')
+        check(w.load(w.SETTINGS, {}).get('program1', '').endswith('program1'), 'program 1 recorded')
+        ran.clear()
+        w.setup(args)
+        eq(ran, [], 'and once made, nothing again')
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith('test_') and callable(v)]
     for test in tests:
