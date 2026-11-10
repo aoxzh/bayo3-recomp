@@ -57,6 +57,10 @@ NO_DEST = {"str", "strb", "strh", "stur", "sturb", "sturh", "stp", "stlr", "stlr
 # instruction that ends the scan for the guarding branch.
 _BRANCHES = {"b", "bl", "br", "blr", "ret", "cbz", "cbnz", "tbz", "tbnz", "b.eq", "b.ne", "b.cs", "b.cc", "b.mi",
              "b.pl", "b.vs", "b.vc", "b.lo", "b.ls", "b.ge", "b.lt", "b.gt", "b.le", "b.al", "b.nv"}
+# Conditional branches that test a register, not NZCV: they may sit between a cmp and the b.hi that uses its
+# flags, so the scan for the guarding branch steps over them instead of ending there (Bayonetta 3's main+3e6980:
+# cmp w22, #0x10d / cbz w10, ... / b.hi -- the cbz hid a 269-entry table behind the 256-entry fallback).
+_FLAG_FREE_BRANCHES = {"cbz", "cbnz", "tbz", "tbnz"}
 # Instructions that write NZCV (so a cmp's flags no longer describe the table's bound past them).
 _FLAG_WRITERS = {"adds", "subs", "adcs", "sbcs", "ands", "bics", "orrs", "eors", "negs", "ngcs", "cmp", "cmn", "tst",
                  "ccmp", "ccmn", "fccmp", "fccmpe", "fcmp", "fcmpe", "csinc", "csinv", "csneg", "cinc", "cinv",
@@ -377,6 +381,8 @@ def _bound(an, f, before, idx):
                     return n + 1
                 if bm == "b.hs":
                     return n
+                if bm in _FLAG_FREE_BRANCHES:
+                    continue  # reads neither NZCV nor the index
                 if bm in _BRANCHES or bm in _FLAG_WRITERS:
                     return None  # another branch consumed these flags, or something else set them
             return None

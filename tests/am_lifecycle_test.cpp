@@ -147,6 +147,17 @@ int main() {
         // stays for anything outside that range.
         check(command(prepo, 10104).out.empty(), "prepo report must be accepted and dropped");
         fails([&] { command(prepo, 10108); }, "is not implemented");
+        auto lm = nx::make_service("lm");
+        auto logger = object(lm, 0);
+        check(logger->name == "ILogger", "lm OpenLogger must return an ILogger");
+        // Retail stubs ILogger (SwitchBrew Log_services): a log line is accepted and dropped, and the
+        // destination/hashed-log commands succeed without configuring anything. Commands outside the
+        // implemented 0-3 range stay strict.
+        check(command(logger, 0, std::vector<uint8_t>(16)).out.empty(), "ILogger Log must accept and drop the message");
+        check(command(logger, 1, std::vector<uint8_t>(4)).out.empty(), "ILogger SetDestination must succeed without a local destination");
+        check(command(logger, 2, std::vector<uint8_t>(4)).out.empty(), "ILogger TransmitHashedLog must be accepted and dropped");
+        check(command(logger, 3, std::vector<uint8_t>(4)).out.empty(), "ILogger DevNotify must be accepted and dropped");
+        fails([&] { command(logger, 11); }, "is not implemented");
         auto aoc = nx::make_service("aoc:u");
         auto mount_status = command(aoc, 50, std::vector<uint8_t>(8));
         check(mount_status.out.empty() && mount_status.out_objects.empty() && mount_status.out_copy.empty(),

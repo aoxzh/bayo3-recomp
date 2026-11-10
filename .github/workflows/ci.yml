@@ -39,6 +39,13 @@ jobs:
           python3 tests/test_b3_launcher_config.py
           python3 tests/test_b3_launcher_task.py
           python3 tools/b3_data.py --help > /dev/null
+      # The recompiler's analysis imports capstone (and lz4 through nso), which the runners do not ship.
+      # A venv keeps it out of the system Python, which Debian marks externally managed.
+      - name: Recompiler jump-table analysis (capstone)
+        run: |
+          python3 -m venv .venv-recomp
+          .venv-recomp/bin/pip install -q -r requirements-bayonetta3.txt
+          .venv-recomp/bin/python tests/recomp_analysis_test.py
 
   windows-package:
     runs-on: windows-2022

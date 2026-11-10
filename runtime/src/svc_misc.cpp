@@ -49,9 +49,29 @@ ServiceRegistrar r_pctl_s("pctl:s", [] { return make("pctl:s", pctl); });
 ServiceRegistrar r_pctl_a("pctl:a", [] { return make("pctl:a", pctl); });
 ServiceRegistrar r_pctl_r("pctl:r", [] { return make("pctl:r", pctl); });
 
+// Retail stubs the whole lm family: every ILogger command returns success and drops its input
+// (SwitchBrew Log_services). The game still opens a logger and sends Log lines; there is no local
+// log destination, so each one is accepted and discarded. Only the commands the 1.2.0-era SDK
+// can reach are implemented; cmd 11 (22.0.0+) stays strict like any other unobserved command.
+std::shared_ptr<Service> logger() {
+    return make("ILogger", [](Service& s) {
+        s.cmds[0] = [](IpcCtx& c) {  // Log: type-0x21 buffer with the message
+            if (const Buffer line = c.in_buf(0); line.addr && g_trace)
+                log("lm: ILogger Log dropped (%llu bytes)", (unsigned long long)line.size);
+            return 0u;
+        };
+        s.cmds[1] = [](IpcCtx& c) {  // SetDestination (3.0.0+): u32 destination mask, nothing local to configure
+            if (g_trace) log("lm: ILogger SetDestination 0x%x accepted (no local destination)", c.arg<uint32_t>(0));
+            return 0u;
+        };
+        s.cmds[2] = [](IpcCtx&) { return 0u; };  // TransmitHashedLog (20.0.0+)
+        s.cmds[3] = [](IpcCtx&) { return 0u; };  // DevNotify (20.0.0+)
+    });
+}
+
 ServiceRegistrar r_lm("lm", [] {
     return make("lm", [](Service& s) {
-        s.cmds[0] = [](IpcCtx& c) { c.push_object(make("ILogger")); return 0u; };  // OpenLogger
+        s.cmds[0] = [](IpcCtx& c) { c.push_object(logger()); return 0u; };  // OpenLogger
     });
 });
 
