@@ -118,7 +118,7 @@ flowchart LR
 
 ## Known issues
 
-- A full playthrough from a new save has not been verified. What has been: Prologue combat, cutscenes, audio, input, and entering Chapter 8 through chapter select with a progressed save.
+- A full playthrough from a new save has not been verified. What has been: Prologue combat, cutscenes, audio, input, entering Chapter 8 through chapter select with a progressed save, and a Phenomenal Remnant — the red diamond nodes on the hub's wall map — loading and playing.
 - Rendering and cutscenes still have issues; not every scene has been checked on every GPU.
 - Frame rate can dip while textures load the first time you enter a scene.
 - Phones throttle as they heat up, and uncapped frame rates fall with it; Balanced 40 holds better.
