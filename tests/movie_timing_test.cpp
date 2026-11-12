@@ -20,6 +20,22 @@ static std::vector<uint8_t> frame(uint8_t value, unsigned w = 4, unsigned h = 4)
     return bytes;
 }
 
+// Several movies can be open at once, so the tests drive the container the runtime keeps for them directly:
+// these tests never open a real file, they install a Session and then exercise the plane-fill path against it.
+static void install_session(std::unique_ptr<nx::Session> s) {
+    std::lock_guard lk(nx::g_movie);
+    nx::g_sessions.clear();
+    nx::g_sessions.push_back(std::shared_ptr<nx::Session>(std::move(s)));
+}
+static nx::Session* only_session() {
+    std::lock_guard lk(nx::g_movie);
+    return nx::g_sessions.empty() ? nullptr : nx::g_sessions.front().get();
+}
+static void clear_sessions() {
+    std::lock_guard lk(nx::g_movie);
+    nx::g_sessions.clear();
+}
+
 template <class Predicate>
 static void eventually(Predicate pred) {
     const auto deadline = Clock::now() + 3s;
@@ -110,44 +126,44 @@ static void test_luma_chroma_latch() {
     s->ring.push_back({1, frame(2)});
     s->ring.push_back({2, frame(3)});
     s->ring.push_back({100, frame(4)});
-    nx::g_session = std::move(s);
+    install_session(std::move(s));
     {
-        std::lock_guard lk(nx::g_session->m);
-        nx::g_session->t0 = Clock::now() - 2s;
-        nx::g_session->t0_set = true;
+        std::lock_guard lk(only_session()->m);
+        only_session()->t0 = Clock::now() - 2s;
+        only_session()->t0_set = true;
     }
     uint8_t y[16] = {}, uv[8] = {};
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
     for (auto v : y) assert(v == 3);
     {
-        std::lock_guard lk(nx::g_session->m);
-        nx::movie_timing::prune_due(nx::g_session->ring, 100);  // producer advances between the plane writes
+        std::lock_guard lk(only_session()->m);
+        nx::movie_timing::prune_due(only_session()->ring, 100);  // producer advances between the plane writes
     }
     assert(nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
     for (auto v : uv) assert(v == 53);
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));  // future-only frame must not replace the latch
     for (auto v : y) assert(v == 3);
     {
-        std::lock_guard lk(nx::g_session->m);
-        nx::g_session->t0 = Clock::now() - 101s;
+        std::lock_guard lk(only_session()->m);
+        only_session()->t0 = Clock::now() - 101s;
     }
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
     assert(nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
     for (auto v : y) assert(v == 4);
     for (auto v : uv) assert(v == 54);
-    nx::g_session.reset();
+    clear_sessions();
 
     auto first = std::make_unique<nx::Session>();
     first->out_w = 4;
     first->out_h = 4;
     first->ring.push_back({0, frame(9)});
-    nx::g_session = std::move(first);
+    install_session(std::move(first));
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
     {
-        std::lock_guard lk(nx::g_session->m);
-        assert(nx::g_session->t0_set && nx::g_session->current_index == 0);
+        std::lock_guard lk(only_session()->m);
+        assert(only_session()->t0_set && only_session()->current_index == 0);
     }
-    nx::g_session.reset();
+    clear_sessions();
 }
 
 static void test_latch_ownership_and_backpressure() {
@@ -156,12 +172,12 @@ static void test_latch_ownership_and_backpressure() {
     s->fps = 0.001;  // The next frame cannot become due during this test.
     for (int i = 0; i < 8; ++i) assert(nx::enqueue_frame(*s, frame(uint8_t(i))));
     const uint8_t* first_payload = s->ring.front().nv12.data();
-    nx::g_session = std::move(s);
-    nx::Session& live = *nx::g_session;
+    install_session(std::move(s));
+    nx::Session& session = *only_session();
     std::atomic<bool> entered{false}, enqueued{false};
     std::thread producer([&] {
         entered = true;
-        enqueued = nx::enqueue_frame(live, frame(8));
+        enqueued = nx::enqueue_frame(session, frame(8));
     });
     eventually([&] { return entered.load(); });
     std::this_thread::sleep_for(30ms);
@@ -172,38 +188,38 @@ static void test_latch_ownership_and_backpressure() {
     // The original allocation is now owned by the latch; no second payload was
     // allocated/copied. Consuming it must wake the blocked producer even though
     // playback is still at frame zero.
-    assert(live.current.data() == first_payload && live.current_index == 0);
+    assert(session.current.data() == first_payload && session.current_index == 0);
     eventually([&] { return enqueued.load(); });
     producer.join();
     {
-        std::lock_guard lk(live.m);
-        assert(live.ring.size() == 8);
-        assert(live.ring.front().index == 1 && live.ring.back().index == 8);
+        std::lock_guard lk(session.m);
+        assert(session.ring.size() == 8);
+        assert(session.ring.front().index == 1 && session.ring.back().index == 8);
     }
     assert(nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
     for (auto v : uv) assert(v == 50);
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
-    assert(live.current.data() == first_payload);
+    assert(session.current.data() == first_payload);
     for (auto v : y) assert(v == 0);  // Future frames cannot replace the latch.
 
     const uint8_t* final_payload;
     {
-        std::lock_guard lk(live.m);
-        final_payload = live.ring.back().nv12.data();
-        live.t0 = Clock::now() - 9000s;
-        live.eof = true;
+        std::lock_guard lk(session.m);
+        final_payload = session.ring.back().nv12.data();
+        session.t0 = Clock::now() - 9000s;
+        session.eof = true;
     }
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
-    assert(live.current.data() == final_payload && live.current_index == 8);
-    assert(live.ring.empty());
+    assert(session.current.data() == final_payload && session.current_index == 8);
+    assert(session.ring.empty());
     for (int repeat = 0; repeat < 3; ++repeat) {
         assert(nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
         assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
         for (auto v : y) assert(v == 8);
         for (auto v : uv) assert(v == 58);
-        assert(live.current.data() == final_payload);
+        assert(session.current.data() == final_payload);
     }
-    nx::g_session.reset();
+    clear_sessions();
 }
 
 #if !defined(__ANDROID__)
@@ -222,7 +238,7 @@ static void test_guest_pts_and_identity() {
     s->t0 = Clock::now() - 10h;
     s->ring = {{0, frame(10), 2000000}, {1, frame(11), 2125000},
                {2, frame(12), 2500000}, {3, frame(13), 2875000}};
-    nx::g_session = std::move(s);
+    install_session(std::move(s));
     uint8_t y[16] = {}, uv[8] = {}, other[16] = {};
     const auto capture = [&](int64_t pts) {
         nx::movie_on_frame(101, pts, uintptr_t(y), uintptr_t(uv));
@@ -239,7 +255,7 @@ static void test_guest_pts_and_identity() {
     for (auto v : y) assert(v == 11);
     assert(nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
     for (auto v : uv) assert(v == 61);
-    assert(!nx::g_session->t0_set && nx::g_session->current_pts_us == 2125000);
+    assert(!only_session()->t0_set && only_session()->current_pts_us == 2125000);
 
     // A guest pause cannot advance selection merely because host time passes.
     std::this_thread::sleep_for(30ms);
@@ -250,9 +266,9 @@ static void test_guest_pts_and_identity() {
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
     for (auto v : y) assert(v == 13);
     {
-        std::lock_guard lk(nx::g_session->m);
-        nx::g_session->ring.push_back({4, frame(14), 3200000});
-        nx::movie_timing::prune_pts(nx::g_session->ring, 3200000);
+        std::lock_guard lk(only_session()->m);
+        only_session()->ring.push_back({4, frame(14), 3200000});
+        nx::movie_timing::prune_pts(only_session()->ring, 3200000);
     }
     assert(nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
     for (auto v : uv) assert(v == 63);  // Producer pruning cannot change the Y/UV latch.
@@ -274,25 +290,25 @@ static void test_guest_pts_and_identity() {
     assert(nx::movie_plane_fallback(0xd, 2, 2, uv, 4) == nx::MoviePlane::Repeated);
     for (auto v : y) assert(v == 13);
     for (auto v : uv) assert(v == 63);
-    assert(nx::g_session->current_pts_us == 2875000);
+    assert(only_session()->current_pts_us == 2875000);
     nx::movie_on_frame(100, 9999999, uintptr_t(y), uintptr_t(uv));
-    assert(nx::g_session->target_pts_us == 2875000);
+    assert(only_session()->target_pts_us == 2875000);
     assert(!nx::movie_fill(1, 4, 4, 4, 4, y, 4));
     nx::movie_on_close("same-file", 100);
-    assert(nx::g_session);  // Closing an earlier open of this path must not close this one.
+    assert(only_session());  // Closing an earlier open of this path must not close this one.
     nx::movie_on_close("same-file", 101);
-    assert(!nx::g_session);
+    assert(!only_session());
 
     auto reopened = std::make_unique<nx::Session>();
     reopened->guest = "same-file";
     reopened->file_handle = 102;
-    nx::g_session = std::move(reopened);
+    install_session(std::move(reopened));
     capture(3200000);
-    assert(!nx::g_session->guest_timing && !nx::g_pending_frame.file_handle);
+    assert(!only_session()->guest_timing && !nx::g_pending_frame.file_handle);
     nx::movie_on_close("same-file", 101);
-    assert(nx::g_session);
+    assert(only_session());
     nx::movie_on_close("same-file", 102);
-    assert(!nx::g_session);
+    assert(!only_session());
 }
 
 static void test_guest_producer_pause() {
@@ -323,28 +339,28 @@ static void test_guest_rewind_and_resize() {
     s->out_w = s->out_h = 2;
     s->file_handle = 201;
     s->host = "vfr";
-    nx::g_session = std::move(s);
+    install_session(std::move(s));
     uint8_t y[16] = {}, uv[8] = {};
     nx::movie_on_frame(201, 2500000, uintptr_t(y), uintptr_t(uv));
     nx::movie_fill(1, 4, 4, 4, 4, y, 4);  // Resize while retaining the selected guest target.
-    eventually([&] { std::lock_guard lk(nx::g_session->m); return nx::g_session->next_index == 4; });
+    eventually([&] { std::lock_guard lk(only_session()->m); return only_session()->next_index == 4; });
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
     for (auto v : y) assert(v == 12);
     assert(nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
     for (auto v : uv) assert(v == 62);
-    assert(nx::g_session->target_pts_us == 2500000 && !nx::g_session->t0_set);
+    assert(only_session()->target_pts_us == 2500000 && !only_session()->t0_set);
 
     nx::movie_on_frame(201, 2000000, uintptr_t(y), uintptr_t(uv));
-    assert(nx::g_session->rewind_requested);
+    assert(only_session()->rewind_requested);
     assert(!nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
     nx::movie_fill(1, 4, 4, 4, 4, y, 4);
-    eventually([&] { std::lock_guard lk(nx::g_session->m); return nx::g_session->next_index == 4; });
+    eventually([&] { std::lock_guard lk(only_session()->m); return only_session()->next_index == 4; });
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
     for (auto v : y) assert(v == 10);
     assert(nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
     for (auto v : uv) assert(v == 60);
-    assert(!nx::g_session->rewind_requested && nx::g_session->current_pts_us == 2000000);
-    nx::g_session.reset();
+    assert(!only_session()->rewind_requested && only_session()->current_pts_us == 2000000);
+    clear_sessions();
     assert_no_children();
 }
 
@@ -355,37 +371,37 @@ static void test_stalled_upload_catches_up() {
     s->fps = 30;
     assert(nx::start_decoder(*s));
     eventually([&] { std::lock_guard lk(s->m); return s->next_index == 8; });
-    nx::g_session = std::move(s);
+    install_session(std::move(s));
     uint8_t y[16] = {}, uv[8] = {};
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
     for (auto v : y) assert(v == 0);
     {
-        std::lock_guard lk(nx::g_session->m);
-        nx::g_session->t0 -= 3s;  // simulate a long period without uploads
+        std::lock_guard lk(only_session()->m);
+        only_session()->t0 -= 3s;  // simulate a long period without uploads
     }
-    nx::g_session->space.notify_one();
-    eventually([&] { std::lock_guard lk(nx::g_session->m); return nx::g_session->next_index >= 95; });
+    only_session()->space.notify_one();
+    eventually([&] { std::lock_guard lk(only_session()->m); return only_session()->next_index >= 95; });
     assert(nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
     for (auto v : uv) assert(v == 50);  // producer advanced, but UV still pairs with the prior Y
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
     uint64_t first_index;
     {
-        std::lock_guard lk(nx::g_session->m);
-        first_index = nx::g_session->current_index;
-        assert(first_index >= 90 && nx::g_session->ring.size() <= 8);
-        nx::g_session->t0 -= 1s;  // another low-cadence upload gap
+        std::lock_guard lk(only_session()->m);
+        first_index = only_session()->current_index;
+        assert(first_index >= 90 && only_session()->ring.size() <= 8);
+        only_session()->t0 -= 1s;  // another low-cadence upload gap
     }
-    nx::g_session->space.notify_one();
-    eventually([&] { std::lock_guard lk(nx::g_session->m); return nx::g_session->next_index >= 125; });
+    only_session()->space.notify_one();
+    eventually([&] { std::lock_guard lk(only_session()->m); return only_session()->next_index >= 125; });
     assert(nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
     for (auto v : uv) assert(v == uint8_t(first_index % 100 + 50));
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
     {
-        std::lock_guard lk(nx::g_session->m);
-        assert(nx::g_session->current_index >= 120 && nx::g_session->current_index > first_index);
-        for (auto v : y) assert(v == uint8_t(nx::g_session->current_index % 100));
+        std::lock_guard lk(only_session()->m);
+        assert(only_session()->current_index >= 120 && only_session()->current_index > first_index);
+        for (auto v : y) assert(v == uint8_t(only_session()->current_index % 100));
     }
-    nx::g_session.reset();
+    clear_sessions();
     assert_no_children();
 }
 
@@ -401,21 +417,21 @@ static void test_resize_resets_origin() {
     s->current_set = true;
     s->t0_set = true;
     s->t0 = Clock::now() - 5min;
-    nx::g_session = std::move(s);
+    install_session(std::move(s));
     const auto before = Clock::now();
     uint8_t y[16] = {};
     // The first fill starts the scaled decoder and restarts the luma origin,
     // even when its first frame has not arrived by the time this call returns.
     nx::movie_fill(1, 4, 4, 4, 4, y, 4);
     {
-        std::lock_guard lk(nx::g_session->m);
-        assert(nx::g_session->t0_set && nx::g_session->t0 >= before);
-        assert(!nx::g_session->current_set || nx::g_session->current_index == 0);
+        std::lock_guard lk(only_session()->m);
+        assert(only_session()->t0_set && only_session()->t0 >= before);
+        assert(!only_session()->current_set || only_session()->current_index == 0);
     }
-    eventually([&] { std::lock_guard lk(nx::g_session->m); return !nx::g_session->ring.empty(); });
+    eventually([&] { std::lock_guard lk(only_session()->m); return !only_session()->ring.empty(); });
     assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
     for (auto v : y) assert(v == 0);
-    nx::g_session.reset();
+    clear_sessions();
     assert_no_children();
 }
 
@@ -617,6 +633,66 @@ static void test_android_stream() {
 }
 #endif
 
+// Issue #3: the game pre-opens the next cutscene (ev0011) one frame into the current one (ev0010), and on a build
+// without a verified fetch (Android) nothing but open order says which film is playing. The older film must keep the
+// picture until it has played out, and the pre-opened film must then start from its own first frame.
+static void test_preopened_film_waits_its_turn() {
+    clear_sessions();
+    auto playing = std::make_shared<nx::Session>();
+    playing->file_handle = 718;
+    playing->out_w = playing->out_h = 4;
+    playing->fps = 1;
+    playing->ring.push_back({0, frame(10)});
+    playing->ring.push_back({1, frame(11)});
+    auto next = std::make_shared<nx::Session>();
+    next->file_handle = 730;
+    next->out_w = next->out_h = 4;
+    next->fps = 1;
+    next->ring.push_back({0, frame(20)});
+    next->ring.push_back({1, frame(21)});
+    {
+        std::lock_guard lk(nx::g_movie);
+        nx::g_sessions.push_back(playing);
+        nx::g_sessions.push_back(next);  // opened later: pre-opened
+    }
+    uint8_t y[16] = {}, uv[8] = {};
+    std::deque<nx::Frame> held;
+    {
+        std::lock_guard lk(playing->m);
+        held.swap(playing->ring);  // the playing film's first frame is still in its decoder
+    }
+    assert(!nx::movie_fill(1, 4, 4, 4, 4, y, 4));  // a blank moment, not the next film's clock started early
+    {
+        std::lock_guard lk(next->m);
+        assert(!next->t0_set && next->fills_luma == 0);
+    }
+    {
+        std::lock_guard lk(playing->m);
+        held.swap(playing->ring);
+    }
+    assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
+    for (auto v : y) assert(v == 10);  // the playing film, not the one just opened
+    assert(nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
+    for (auto v : uv) assert(v == 60);
+    {
+        std::lock_guard lk(next->m);
+        assert(!next->t0_set);  // the pre-opened film's clock has not started
+    }
+    {
+        std::lock_guard lk(playing->m);
+        playing->eof = true;  // decoded to the end, but frame 11 is still to be shown
+        playing->t0 = Clock::now() - 5s;
+    }
+    assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
+    for (auto v : y) assert(v == 11);  // decoder EOF alone does not hand over
+    assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
+    for (auto v : y) assert(v == 20);  // played out: the next film, from its own first frame
+    assert(nx::movie_fill(0xd, 2, 2, 2, 2, uv, 4));
+    for (auto v : uv) assert(v == 70);  // the chroma half of the same pair
+    assert(playing->fills_luma == 2 && next->fills_luma == 1);
+    clear_sessions();
+}
+
 int main(int argc, char** argv) {
 #if !defined(__ANDROID__)
     if (std::filesystem::path(argv[0]).filename() == "ffmpeg") return fake_ffmpeg(argc, argv);
@@ -627,6 +703,7 @@ int main(int argc, char** argv) {
     test_preroll_and_late_producer();
     test_luma_chroma_latch();
     test_latch_ownership_and_backpressure();
+    test_preopened_film_waits_its_turn();
 #if defined(__ANDROID__)
     test_android_stream();
 #else

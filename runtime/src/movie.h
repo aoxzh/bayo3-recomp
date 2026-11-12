@@ -8,9 +8,14 @@ namespace nx {
 
 // The fs layer calls this when the game opens a romfs movie, with the guest path it used and the
 // host file it resolved to. The unique FS handle identifies this open, including
-// consecutive opens of the same path. Replaces any session already running.
+// consecutive opens of the same path.
+//
+// Every open gets its own session for as long as the game holds it open: the game pre-opens the next cutscene while
+// the current one is still playing (the prologue opens ev0011 two uploaded frames into ev0010), so an open must not
+// disturb a film that is already running.
 void movie_on_open(const std::string& guest_path, const std::string& host_path, uint64_t file_handle = 0);
-// A close from an older open of the same path must not stop its replacement.
+// Ends the session of the open named by the handle (the path is diagnostic only). A close from an older open of the
+// same path must not stop its replacement, and a close for an open this layer never saw is a no-op.
 void movie_on_close(const std::string& guest_path, uint64_t file_handle = 0);
 
 // The verified guest frame-fetch call supplies selected microseconds and the
@@ -19,9 +24,10 @@ void movie_on_close(const std::string& guest_path, uint64_t file_handle = 0);
 void movie_on_frame(uint64_t file_handle, int64_t pts_us, uint64_t luma, uint64_t chroma);
 
 // Called from nvnTextureWriteTexels before the texels are copied out of guest memory: when the
-// write is one of the active movie's Y/UV planes, the real decoded frame is written into the
+// write is one of an open movie's Y/UV planes, the real decoded frame is written into the
 // guest buffer first, so the game's own upload/composite path carries it from there. Returns
-// whether a frame was supplied.
+// whether a frame was supplied. Several movies may be open at once, so the film is chosen by the
+// plane's shape and, when the renderer just fetched a frame, by the fetch itself.
 bool movie_fill(uint32_t format, uint32_t tex_w, uint32_t tex_h, uint32_t region_w, uint32_t region_h,
                 uint8_t* data, uint64_t row_stride);
 

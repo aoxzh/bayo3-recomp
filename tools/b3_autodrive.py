@@ -191,11 +191,19 @@ def newest_frame(frames_dir):
 
 def write_live(path, button, hold_note=""):
     """Holds `button` now (the runtime polls the file). An empty button releases everything."""
+    text = f"0:{button}:0;" if button else ""
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
-        if button:
-            f.write(f"0:{button}:0;")
-    os.replace(tmp, path)
+        f.write(text)
+    try:
+        os.replace(tmp, path)
+    except PermissionError:
+        # Windows: the runtime reopens the live file every 50 ms with fopen(), whose sharing mode forbids
+        # replacing it, so the rename above loses the race whenever a poll is in flight (observed as
+        # WinError 5 killing a 13 s old drive). Writing in place cannot fail that way: the file is already
+        # open for share, and a poll that reads half a stopped write misses one 50 ms press at worst.
+        with open(path, "w") as f:
+            f.write(text)
 
 
 # A movie is "still playing" if its `movie:` fill count changed within this window. ev0025 prints a
