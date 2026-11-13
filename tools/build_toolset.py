@@ -224,23 +224,27 @@ def sysroot(out):
         files = subprocess.check_output(['dpkg', '-L', package], text=True).splitlines()
         for f in files:
             p = Path(f)
-            if not p.is_absolute() or p.is_dir() and not p.is_symlink():
+            if not p.is_absolute() or p.is_dir():  # directories (and /lib, /lib64 links) come from their files
                 continue
             if f.startswith(('/usr/share/', '/etc/', '/usr/bin/', '/usr/sbin/', '/sbin/', '/bin/', '/usr/libexec/')):
                 continue
-            target = dest / f.lstrip('/')
+            # Merged /usr (/lib64 -> usr/lib64 on Ubuntu 22.04): store each file under its real folder; the links
+            # between the folders are made below, as on the host.
+            target = dest / os.path.realpath(p.parent).lstrip('/') / p.name
             target.parent.mkdir(parents=True, exist_ok=True)
             if p.is_symlink():
                 if target.is_symlink() or target.exists():
                     target.unlink()
                 link = os.readlink(p)
+                if link.startswith('/'):  # a host path: point into the sysroot instead
+                    link = os.path.relpath(dest / os.path.realpath(link).lstrip('/'), target.parent)
                 target.symlink_to(link)
             elif p.is_file():
                 shutil.copy2(p, target)
             count += 1
     # Ubuntu's /lib -> usr/lib and /lib64 layout: keep it, since libc.so's linker script names /lib/... paths.
     for name in ('lib', 'lib64'):
-        if Path('/' + name).is_symlink() and not (dest / name).exists():
+        if Path('/' + name).is_symlink() and not os.path.lexists(dest / name):
             (dest / name).symlink_to(os.readlink('/' + name))
     say(f'sysroot: {count} files from {", ".join(p.format(gcc=gcc) for p in SYSROOT_PACKAGES)} (gcc {gcc})')
 

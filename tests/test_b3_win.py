@@ -96,7 +96,7 @@ def test_program_switch():
     with tempfile.TemporaryDirectory() as tmp:
         w = fresh(tmp)
         b3, p1 = w.data_roots()
-        for exe in (w.WIN / 'build/b3/bayonetta3.exe', w.WIN / 'build/prog1/bayonetta3prog1.exe'):
+        for exe in (w.WIN / f'build/b3/bayonetta3{w.EXE}', w.WIN / f'build/prog1/bayonetta3prog1{w.EXE}'):
             exe.parent.mkdir(parents=True)
             exe.write_bytes(b'')
         b3.mkdir(parents=True), p1.mkdir(parents=True)
@@ -127,8 +127,8 @@ def test_program_switch():
             os.environ.pop('B3_CONFIG', None)
         check((Path(tmp) / 'b3.conf').exists(), 'a missing settings file is created from the template')
         eq(rc, 0, 'the last program exits normally')
-        eq([c[:2] for c in calls], [('bayonetta3.exe', 'b3'), ('bayonetta3prog1.exe', 'prog1'),
-                                    ('bayonetta3.exe', 'b3')], 'program 0 -> 1 -> 0, each in its own data root')
+        eq([c[:2] for c in calls], [(f'bayonetta3{w.EXE}', 'b3'), (f'bayonetta3prog1{w.EXE}', 'prog1'),
+                                    (f'bayonetta3{w.EXE}', 'b3')], 'program 0 -> 1 -> 0, each in its own data root')
         eq(calls[1][2], b'P' * 32, 'program 1 gets program 0 user channel')
         eq(calls[2][2], b'back', 'program 0 gets program 1 user channel back')
         check(not (b3 / 'relaunch.txt').exists(), 'relaunch.txt is consumed')
