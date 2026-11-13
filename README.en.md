@@ -111,6 +111,10 @@ flowchart LR
 
 ## Getting started
 
+**Quickest: a release.** Download the [latest release](https://github.com/aoxzh/bayo3-recomp/releases/latest) for your platform: `windows-x64.zip`, or `linux-x86_64.tar.gz` for Linux and the Steam Deck. Each one carries the tools the setup needs (on Linux even the compiler, so nothing has to be installed, which suits SteamOS) and none of the game. Unpack it, start `Bayonetta3Recomp.cmd` / `Bayonetta3Recomp.sh`, choose **Set up from my dump** and pick your 1.2.0 dump folder: your own machine then generates and builds the game, which takes about half an hour to two hours. On the Steam Deck, add `Bayonetta3Recomp.sh` to Steam as a non-Steam game with the launch option `--play` to start it from Game Mode. Android has no download yet, because its APK would contain the game built from your dump; build it as the [playing guide](docs/PLAYING.md) describes.
+
+**From source:**
+
 1. Have your version 1.2.0 ExeFS and RomFS ready.
 2. Read the [playing guide](docs/PLAYING.md): from your game files to a build and a normal launch on each platform. On Windows one command generates, builds and links: `python tools/b3_win.py setup --dump <your dump folder>`; then double-click `scripts/b3_win_launcher.cmd` to open the launcher.
 3. The [build guide](docs/BUILD.md) covers dependencies, code and shader generation, per-platform builds and standalone tests.

@@ -256,7 +256,8 @@ def test_switch_names_are_the_documented_ones():
     for setting in cfg.SETTINGS:
         check(setting.group in cfg.GROUPS, f'{setting.key} group {setting.group} is a known tab')
     for group in cfg.GROUPS:
-        check(cfg.group_settings(group), f'tab {group} is not empty')
+        if group not in cfg.LIST_GROUPS:
+            check(cfg.group_settings(group), f'tab {group} is not empty')
 
 
 def test_save_is_atomic_and_round_trips():
@@ -358,6 +359,23 @@ def test_install_layout_per_host():
     eq(linux['log'].name, 'b3.log', 'Linux keeps private/b3.log')
     check('b3_win.py setup' in cfg.build_hint('win'), 'the Windows build hint names the setup')
     eq(cfg.build_hint('linux'), 'cmake --build private/build-deck', 'the Linux build hint names build-deck')
+
+
+def test_mods_switch_by_their_dash():
+    with tempfile.TemporaryDirectory(prefix='b3-mods-') as tmp:
+        root = Path(tmp)
+        check(cfg.mods_of(root, host='win') == [], 'no mods folder: no mods')
+        mods = cfg.mods_dir(root, host='win')
+        for name in ('b-hud', '-a-costume', '.hidden'):
+            (mods / name).mkdir(parents=True)
+        (mods / 'readme.txt').write_text('not a mod', encoding='utf-8')
+        check(cfg.mods_of(root, host='win') == [('a-costume', '-a-costume', False), ('b-hud', 'b-hud', True)],
+              f'mods listed in apply order, dot folders skipped: {cfg.mods_of(root, host="win")}')
+        check(cfg.set_mod(root, '-a-costume', True, host='win') == 'a-costume', 'switching on drops the dash')
+        check(cfg.set_mod(root, 'b-hud', False, host='win') == '-b-hud', 'switching off adds the dash')
+        check(cfg.set_mod(root, '-b-hud', False, host='win') == '-b-hud', 'already off: unchanged')
+        check(sorted(p.name for p in mods.iterdir()) == ['-b-hud', '.hidden', 'a-costume', 'readme.txt'],
+              'the folders were renamed in place')
 
 
 def test_reset_keeps_comments():

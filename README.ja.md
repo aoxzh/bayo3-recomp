@@ -129,6 +129,10 @@ flowchart LR
 
 ## はじめに
 
+**いちばん手軽：リリース版。** [最新リリース](https://github.com/aoxzh/bayo3-recomp/releases/latest)から自分のプラットフォーム用をダウンロードします。`windows-x64.zip`、Linux と Steam Deck は `linux-x86_64.tar.gz` です。どちらもセットアップに必要なツールを同梱し（Linux 版はコンパイラーまで入っているので何もインストール不要で、SteamOS に向いています）、ゲームの内容は一切含みません。展開して `Bayonetta3Recomp.cmd` / `Bayonetta3Recomp.sh` を起動し、**Set up from my dump** で 1.2.0 のダンプのフォルダーを選ぶと、自分のマシンがゲームを生成してビルドします（30 分から 2 時間ほど）。Steam Deck では `Bayonetta3Recomp.sh` を非 Steam ゲームとして Steam に追加し、起動オプションに `--play` を指定するとゲームモードから直接起動できます。Android はまだダウンロード版がありません。APK にはダンプからビルドしたゲームが入るためです。[プレイガイド](docs/PLAYING.md)に従ってビルドしてください。
+
+**ソースから：**
+
 1. リポジトリをクローンします：
    ```sh
    git clone https://github.com/aoxzh/bayo3-recomp.git

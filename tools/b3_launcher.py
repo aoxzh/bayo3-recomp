@@ -623,6 +623,7 @@ class Launcher(tk.Tk):
         self.rows = {}
         self.windows = {}       # setting key -> the canvas window item holding its control
         self.focusable = []
+        self.mods = []          # the Mods tab: [(name, folder, BooleanVar, Toggle, canvas item)] as last read
         self.group = cfg.GROUPS[0]
         self.view = 'home'
         self.menu_index = 0
@@ -720,7 +721,7 @@ class Launcher(tk.Tk):
         c = self.canvas
         w, h = max(c.winfo_width(), 2), max(c.winfo_height(), 2)
         c.delete('chrome')
-        for item in self.windows.values():
+        for item in list(self.windows.values()) + [m[4] for m in self.mods]:
             c.itemconfigure(item, state='hidden')
         for item in (self.save_item, self.reset_item, self.log_item):
             c.itemconfigure(item, state='hidden')
@@ -830,9 +831,11 @@ class Launcher(tk.Tk):
             c.tag_bind(f'tab_{group}', '<Leave>', lambda _e: c.configure(cursor=''))
             x = bx2 + px(30)
         c.create_line(x1 + px(1), ty + px(26), x2 - px(1), ty + px(26), fill=LINE, tags=('chrome',))
+        top, bottom = ty + px(40), y2 - px(104)
+        if self.group == 'mods':
+            self._layout_mods(x1, x2, top, bottom)
         # The rows of the group: label (and its default) on the left, the control right-aligned.
         settings = cfg.group_settings(self.group)
-        top, bottom = ty + px(40), y2 - px(104)
         row_h = max(px(40), min(px(54), (bottom - top) // max(1, len(settings))))
         for i, setting in enumerate(settings):
             mid = top + i * row_h + row_h // 2
@@ -859,6 +862,60 @@ class Launcher(tk.Tk):
         c.update_idletasks()
         c.coords(self.reset_item, x2 - px(44) - self.save_button.winfo_reqwidth(), y2 - px(28))
         c.itemconfigure(self.reset_item, state='normal')
+
+    # -- the Mods tab -----------------------------------------------------------------------------------------------
+    def _read_mods(self):
+        """Re-read the mods folder; the toggles are made again only when its folders changed."""
+        found = cfg.mods_of(self.root)
+        if [(m[0], m[1]) for m in self.mods] == [(n, f) for n, f, _ in found]:
+            return
+        for _n, _f, _var, widget, item in self.mods:
+            self.canvas.delete(item)
+            if widget in self.focusable:
+                self.focusable.remove(widget)
+            widget.destroy()
+        self.mods = []
+        for name, folder, on in found:
+            var = tk.BooleanVar(value=on)
+            widget = Toggle(self.canvas, var)
+            item = self.canvas.create_window(0, 0, window=widget, anchor='e', state='hidden')
+            self.focusable.append(widget)
+            widget.bind('<FocusIn>', lambda _e, w=widget: self._focus_moved(w), add='+')
+            self.mods.append([name, folder, var, widget, item])
+            var.trace_add('write', lambda *_a, n=name: self._switch_mod(n))
+        self.focus_index = min(self.focus_index, max(0, len(self.focusable) - 1))
+
+    def _switch_mod(self, name):
+        for mod in self.mods:
+            if mod[0] == name:
+                try:
+                    mod[1] = cfg.set_mod(self.root, mod[1], mod[2].get())
+                    self._set_status(f'Mod {name} is {"on" if mod[2].get() else "off"} from the next start.')
+                except OSError as e:
+                    self._set_status(f'Mod {name}: {e}', bad=True)
+
+    def _layout_mods(self, x1, x2, top, bottom):
+        c = self.canvas
+        self._read_mods()
+        folder = self._short(cfg.mods_dir(self.root))
+        self.help_text = (f'Each folder in {folder} replaces game files by their RomFS path (from its romfs/ folder, '
+                          'or the folder itself). Later names win. Changes apply at the next start.')
+        if not self.mods:
+            self._text(x1 + px(32), top + px(24), 'No mods yet.', (UI, 11), TEXT)
+            self._text(x1 + px(32), top + px(52), f'Put each mod in its own folder in {folder}, then come back here.',
+                       (UI, 9), MUTED, width=max(px(200), x2 - x1 - px(64)))
+            return
+        row_h = max(px(36), min(px(48), (bottom - top) // max(1, len(self.mods))))
+        for i, (name, _folder, _var, _widget, item) in enumerate(self.mods):
+            mid = top + i * row_h + row_h // 2
+            if mid > bottom:
+                break
+            self._text(x1 + px(32), mid, name, (UI, 11), TEXT)
+            if i:
+                c.create_line(x1 + px(32), mid - row_h // 2, x2 - px(32), mid - row_h // 2, fill=LINE,
+                              tags=('chrome',))
+            c.coords(item, x2 - px(32), mid)
+            c.itemconfigure(item, state='normal')
 
     # -- views ----------------------------------------------------------------------------------------------------
     def show_home(self):
@@ -900,7 +957,7 @@ class Launcher(tk.Tk):
 
     def _menu(self):
         """The home menu. On Windows with tools/b3_win.py: Set up first, then Start game and Rebuild."""
-        if os.name != 'nt' or not (self.root / 'tools/b3_win.py').is_file():
+        if not cfg.player_flow() or not (self.root / 'tools/b3_win.py').is_file():
             return self.MENU
         if not cfg.install_state(self.root)['built']:
             return ('setup', 'settings', 'log', 'quit')
@@ -981,6 +1038,8 @@ class Launcher(tk.Tk):
             self._schedule_layout()
 
     def _show_help(self, setting):
+        if setting is None:  # a mod's toggle: the tab's own help stays
+            return
         self.help_text = f'{setting.label} — {setting.help}' if setting.help else setting.label
         if self.view == 'settings' and getattr(self, 'help_item', None):
             self.canvas.itemconfigure(self.help_item, text=self.help_text)
@@ -1317,6 +1376,8 @@ class Launcher(tk.Tk):
             self.layout()
 
     def _page_widgets(self):
+        if self.group == 'mods':
+            return [m[3] for m in self.mods]
         return [self.rows[s.key][1] for s in cfg.group_settings(self.group)]
 
     def _focus_moved(self, widget):
@@ -1367,6 +1428,8 @@ class Launcher(tk.Tk):
         widget = self.focusable[self.focus_index] if self.focusable else None
         setting = self._setting_of(widget) if widget is not None else None
         if setting is None:
+            if isinstance(widget, Toggle):  # a mod
+                widget.flip()
             return
         if setting.kind == 'bool':
             self.vars[setting.key].set(not self.vars[setting.key].get())

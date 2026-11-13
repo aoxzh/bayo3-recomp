@@ -1,7 +1,8 @@
-# Unit tests on Linux, the Python tools and the Windows release zip on Windows, and a GitHub Release for a v* tag.
-# No game data exists here: the game itself is generated and built on the player's machine from their own dump, so
-# CI builds the runtime's standalone unit tests (CMake NX_TESTS, which builds only the tests without generated code)
-# and the tools, never the game.
+# Unit tests on Linux, the release archives (Windows zip, Linux / Steam Deck tar.gz) with their toolsets, and a GitHub
+# Release for a v* tag. No game data exists here: the game itself is generated and built on the player's machine from
+# their own dump, so CI builds the runtime's standalone unit tests (CMake NX_TESTS, which builds only the tests without
+# generated code), the tools and the toolset (tools/build_toolset.py: the compiler, shader translator and the rest a
+# player's setup needs), never the game.
 name: ci
 
 on:
@@ -47,6 +48,51 @@ jobs:
           .venv-recomp/bin/pip install -q -r requirements-bayonetta3.txt
           .venv-recomp/bin/python tests/recomp_analysis_test.py
 
+  # The Steam Deck release: built on the oldest supported Ubuntu, so its sysroot's glibc (2.35) is older than any
+  # current desktop distribution's or SteamOS 3's, and what the player compiles with it runs there.
+  linux-package:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the archive is named by git describe
+      - name: Toolset cache key (the build script and every pin it reads)
+        id: key
+        run: |
+          k=$(cat tools/build_toolset.py tools/bayonetta3_shaders/ShaderHarness.csproj tools/bayonetta3_shaders/*.cs               <(grep -E '^(RYUJINX|SPIRV_TOOLS|OPUS|VULKAN_HEADERS)' -A2 tools/b3_win.py) | sha256sum | cut -c1-16)
+          echo "key=toolset-linux-$k" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: toolset
+          key: ${{ steps.key.outputs.key }}
+      - name: Build dependencies (SDL3's video and audio backends, ffmpeg's assembler, the sysroot's packages)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build git curl nasm pkg-config             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev             libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libegl-dev libgl-dev libgles-dev             libdrm-dev libgbm-dev libpulse-dev libasound2-dev libpipewire-0.3-dev libjack-dev libsndio-dev             libudev-dev libdbus-1-dev libibus-1.0-dev libusb-1.0-0-dev
+      - uses: actions/setup-dotnet@v4
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          dotnet-version: '10.0.x'
+      - name: Toolset
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: python3 tools/build_toolset.py --out toolset --work "$RUNNER_TEMP/toolset-work"
+      # The unit tests build no platform layer: compile the Linux one against the toolset's SDL3 the way a setup does.
+      - name: Linux platform sources compile with the toolset
+        run: |
+          for f in runtime/src/*_linux.cpp; do
+            toolset/llvm/bin/clang++ --sysroot=toolset/sysroot -std=gnu++20 -fsyntax-only -march=x86-64-v3 \
+              -DNX_BAYONETTA3=1 -DNX_MOVIE_VTABLE=1 -Iruntime/include -Iruntime/src -Igames/bayonetta3 \
+              -Itoolset/vulkan/include -Itoolset/sdl3/include "$f"
+          done
+      - name: Release archive (with the toolset)
+        run: toolset/python/bin/python3 tools/b3_win.py package --out dist --toolset toolset
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: dist/*
+
   windows-package:
     runs-on: windows-2022
     steps:
@@ -61,9 +107,40 @@ jobs:
           python tests/test_b3_win.py
           python tests/test_b3_launcher_config.py
           python tests/test_b3_launcher_task.py
-      - name: Release zip (with its own Python)
+      - name: Toolset cache key
+        id: key
+        shell: bash
+        run: |
+          k=$(cat tools/build_toolset.py tools/bayonetta3_shaders/ShaderHarness.csproj tools/bayonetta3_shaders/*.cs               requirements-bayonetta3.txt <(grep -E '^(RYUJINX|SPIRV_TOOLS|OPUS|VULKAN_HEADERS|    .llvm_mingw)' -A2               tools/b3_win.py) | sha256sum | cut -c1-16)
+          echo "key=toolset-windows-$k" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: toolset
+          key: ${{ steps.key.outputs.key }}
+      - uses: actions/setup-dotnet@v4
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          dotnet-version: '10.0.x'
+      - name: Toolset (llvm-mingw and Ninja at the setup's pinned versions)
+        if: steps.cache.outputs.cache-hit != 'true'
         shell: pwsh
-        run: python tools/b3_win.py package --out dist --python "$env:pythonLocation"
+        run: |
+          $pins = python -c "import sys; sys.path.insert(0, 'tools'); import b3_win; t = b3_win.TOOLCHAIN; print(t['llvm_mingw'][0]); print(t['llvm_mingw'][1]); print(t['ninja'][0]); print(t['ninja'][1])"
+          $t = "$env:RUNNER_TEMP/tc"
+          New-Item -ItemType Directory -Force $t | Out-Null
+          foreach ($i in 0, 2) {
+            $zip = "$t/$i.zip"
+            Invoke-WebRequest $pins[$i] -OutFile $zip
+            if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne $pins[$i + 1]) { throw "sha256 of $($pins[$i])" }
+            Expand-Archive $zip "$t/$i"
+          }
+          $mingw = (Get-ChildItem "$t/0" -Directory)[0].FullName
+          $env:PATH = "$mingw/bin;$t/2;$env:PATH"
+          python tools/build_toolset.py --out toolset --work "$env:RUNNER_TEMP/toolset-work"
+      - name: Release zip (with its own Python and the toolset)
+        shell: pwsh
+        run: python tools/b3_win.py package --out dist --python "$env:pythonLocation" --toolset toolset
       - uses: actions/upload-artifact@v4
         with:
           name: windows-release
@@ -71,14 +148,15 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux-tests, windows-package]
+    needs: [linux-tests, linux-package, windows-package]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: windows-release
+          pattern: '*-release'
+          merge-multiple: true
           path: dist
       - name: GitHub Release
         env:

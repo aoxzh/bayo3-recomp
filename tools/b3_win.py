@@ -47,6 +47,11 @@ import b3_data  # noqa: E402  (tools/b3_data.py: the data step, shared with Linu
 
 ROOT = Path(__file__).resolve().parents[1]
 WIN = Path(os.environ.get('B3_WIN_ROOT') or ROOT / 'private/win')  # B3_WIN_ROOT: another tree (tests)
+# A release's prebuilt tools (tools/build_toolset.py): the shader translator, spirv-val, libopus and, on Linux, the
+# compiler, its sysroot, CMake, Ninja, SDL3, ffmpeg and Python. With it a setup fetches and builds no tool.
+TOOLSET = Path(os.environ.get('B3_TOOLSET') or ROOT / 'toolset')
+WINDOWS = os.name == 'nt'
+EXE = '.exe' if WINDOWS else ''
 STATE = WIN / 'state.json'
 SETTINGS = WIN / 'setup.json'
 STEPS = ['deps', 'verify', 'data', 'cpu', 'shaders', 'build', 'link']
@@ -57,6 +62,8 @@ PROGRAMS = {  # program -> (version configuration, executable target, data root 
 TRIPLET = 'x86_64-w64-mingw32'
 # Pinned sources (docs/BUILD.md): the commits the shader pipeline was verified with.
 OOZ = ('https://github.com/powzix/ooz.git', '05038060aa68f9187ae9923b2388ca8db40e58d1')
+# The same commit as a source archive (no git needed), and sse2neon for an ARM64 host's build of it.
+OOZ_ZIP = 'https://codeload.github.com/powzix/ooz/zip/05038060aa68f9187ae9923b2388ca8db40e58d1'
 RYUJINX = ('https://github.com/enginefuture/bayonetta3-mobile.git', 'e5ce11694d380d70b53c4ec7c4f789b458058d3e',
            'third_party/blade2-mobile/dm/third_party/ryujinx')
 SPIRV_TOOLS = ('https://github.com/KhronosGroup/SPIRV-Tools.git', 'v2026.1')
@@ -223,26 +230,50 @@ def which(name, *extra):
 
 
 def tools(settings):
-    """Every external tool, from setup.json's `tools` (paths you gave with --tool), PATH, or what deps built."""
+    """Every external tool, from setup.json's `tools` (paths you gave with --tool), a release's toolset/, PATH, or
+    what deps built."""
     given = settings.get('tools', {})
     t = WIN / 'tools'
-    found = {
-        'cxx': which(f'{TRIPLET}-clang++', given.get('cxx'),
-                     given.get('llvm_mingw') and Path(given['llvm_mingw']) / 'bin' / f'{TRIPLET}-clang++.exe',
-                     t / 'llvm-mingw/bin' / f'{TRIPLET}-clang++.exe'),
-        'cmake': which('cmake', given.get('cmake'), t / 'cmake/bin/cmake.exe'),
-        'ninja': which('ninja', given.get('ninja'), t / 'ninja/ninja.exe'),
-        'git': which('git', given.get('git'), t / 'git/cmd/git.exe'),
-        'dotnet': which('dotnet', given.get('dotnet'), r'C:\Program Files\dotnet\dotnet.exe', t / 'dotnet/dotnet.exe'),
-        'spirv_val': which('spirv-val', given.get('spirv_val'),
-                           t / 'SPIRV-Tools/build/tools/spirv-val.exe'),
-        'decoder': which('kraken_worker', given.get('decoder'), t / 'kraken/kraken_worker.exe'),
-        'python': which('python', given.get('python'), t / 'venv/Scripts/python.exe'),
-    }
-    found['cc'] = found['cxx'] and found['cxx'].with_name(found['cxx'].name.replace('clang++', 'clang'))
+    ts = TOOLSET
+    if WINDOWS:
+        found = {
+            'cxx': which(f'{TRIPLET}-clang++', given.get('cxx'),
+                         given.get('llvm_mingw') and Path(given['llvm_mingw']) / 'bin' / f'{TRIPLET}-clang++.exe',
+                         t / 'llvm-mingw/bin' / f'{TRIPLET}-clang++.exe'),
+            'cmake': which('cmake', given.get('cmake'), t / 'cmake/bin/cmake.exe'),
+            'ninja': which('ninja', given.get('ninja'), t / 'ninja/ninja.exe'),
+            'git': which('git', given.get('git'), t / 'git/cmd/git.exe'),
+            'dotnet': which('dotnet', given.get('dotnet'), r'C:\Program Files\dotnet\dotnet.exe',
+                            t / 'dotnet/dotnet.exe'),
+            'spirv_val': which('spirv-val', given.get('spirv_val'), ts / 'bin/spirv-val.exe',
+                               t / 'SPIRV-Tools/build/tools/spirv-val.exe'),
+            'decoder': which('kraken_worker', given.get('decoder'), t / 'kraken/kraken_worker.exe'),
+            'python': which('python', given.get('python'), t / 'venv/Scripts/python.exe'),
+        }
+        found['cc'] = found['cxx'] and found['cxx'].with_name(found['cxx'].name.replace('clang++', 'clang'))
+        found['opus'] = Path(given['opus']) if given.get('opus') else (
+            ts / 'bin/libopus.dll' if (ts / 'bin/libopus.dll').is_file() else t / 'opus/libopus.dll')
+    else:
+        # Linux / Steam Deck: SteamOS has no compiler or development headers, so a release brings them all.
+        found = {
+            'cxx': which('clang++', given.get('cxx'), ts / 'llvm/bin/clang++'),
+            'cmake': which('cmake', given.get('cmake'), ts / 'cmake/bin/cmake'),
+            'ninja': which('ninja', given.get('ninja'), ts / 'bin/ninja'),
+            'git': which('git', given.get('git')),
+            'dotnet': which('dotnet', given.get('dotnet')),
+            'spirv_val': which('spirv-val', given.get('spirv_val'), ts / 'bin/spirv-val'),
+            'decoder': which('kraken_worker', given.get('decoder'), t / 'kraken/kraken_worker'),
+            'python': which('python3', given.get('python'), ts / 'python/bin/python3', t / 'venv/bin/python'),
+        }
+        found['cc'] = found['cxx'] and found['cxx'].with_name('clang')
+        found['opus'] = Path(given['opus']) if given.get('opus') else ts / 'lib/libopus.so.0'
+        found['sysroot'] = ts / 'sysroot' if (ts / 'sysroot').is_dir() else None
+        found['sdl3'] = Path(given['sdl3']) if given.get('sdl3') else (ts / 'sdl3' if (ts / 'sdl3').is_dir() else None)
+        found['bin'] = ts / 'bin' if (ts / 'bin/ffmpeg').is_file() else None  # ffmpeg/ffprobe for the cutscenes
+    found['harness'] = which('ShaderHarness', given.get('harness'), ts / f'shader-harness/ShaderHarness{EXE}')
     found['ryujinx'] = Path(given['ryujinx']) if given.get('ryujinx') else t / 'ryujinx'
-    found['vulkan'] = Path(given['vulkan']) if given.get('vulkan') else t / 'Vulkan-Headers'
-    found['opus'] = Path(given['opus']) if given.get('opus') else t / 'opus/libopus.dll'
+    found['vulkan'] = Path(given['vulkan']) if given.get('vulkan') else (
+        ts / 'vulkan' if (ts / 'vulkan/include/vulkan/vulkan.h').is_file() else t / 'Vulkan-Headers')
     return found
 
 
@@ -315,45 +346,103 @@ def fetch_archive(name, log):
         f.write(f'fetched {url} ({algorithm} {want[:16]}...) into {folder}\n')
 
 
+def has_packages(python):
+    """Whether this Python already has the recompiler's packages (a release's Linux Python does)."""
+    if not python:
+        return False
+    probe = subprocess.run([str(python), '-c', 'import lz4.block, capstone'], capture_output=True)
+    return probe.returncode == 0
+
+
+def linux_flags(found):
+    """Compile and link flags for the bundled clang on Linux: its own sysroot (SteamOS has no headers), lld, and the
+    C++ runtime linked in, so the result needs nothing but the system's glibc."""
+    if WINDOWS or not found.get('sysroot'):
+        return [], []
+    return [f'--sysroot={found["sysroot"]}'], ['-fuse-ld=lld', '-static-libstdc++', '-static-libgcc']
+
+
+def build_kraken(found, env, log):
+    """The Kraken decoder the shader step reads the game's archives with: powzix/ooz at the pinned commit, from its
+    source archive, compiled on this machine (a release does not redistribute it: docs/BUILD.md)."""
+    t = WIN / 'tools'
+    src = t / 'ooz-src'
+    if not (src / 'kraken.cpp').is_file():
+        say('deps: the Kraken decoder (ooz source)')
+        archive = t / 'downloads' / f'ooz-{OOZ[1][:12]}.zip'
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        if not archive.exists():
+            part = archive.with_suffix('.part')
+            urllib.request.urlretrieve(OOZ_ZIP, part)
+            os.replace(part, archive)
+        import zipfile
+        staging = t / 'ooz-src.partial'
+        shutil.rmtree(staging, ignore_errors=True)
+        with zipfile.ZipFile(archive) as z:
+            z.extractall(staging)
+        inner = next(staging.iterdir())
+        if not (inner / 'kraken.cpp').is_file():
+            raise SetupError(f'{archive.name} has no kraken.cpp')
+        shutil.rmtree(src, ignore_errors=True)
+        os.replace(inner, src)
+        shutil.rmtree(staging, ignore_errors=True)
+    out = t / 'kraken'
+    out.mkdir(parents=True, exist_ok=True)
+    cflags, ldflags = linux_flags(found)
+    shim = [] if WINDOWS else ['-I', ROOT / 'tools/bayonetta3_shaders/ooz_posix']
+    link = ['-static'] if WINDOWS else (ldflags or ['-static-libstdc++', '-static-libgcc'])
+    say('deps: compiling the Kraken decoder')
+    run([found['cxx'], *cflags, '-O2', '-w', *shim, '-include', 'sys/stat.h', '-Dmain=ooz_cli_main',
+         '-c', src / 'kraken.cpp', '-o', out / 'kraken.o'], log, env=env)
+    run([found['cxx'], *cflags, '-O2', '-w', *shim, *link, ROOT / 'tools/bayonetta3_shaders/kraken_worker_ooz.cpp',
+         out / 'kraken.o', src / 'bitknit.cpp', src / 'lzna.cpp', '-o', out / f'kraken_worker{EXE}'], log, env=env)
+    run([found['python'], ROOT / 'tools/test_kraken_worker.py', '--worker', out / f'kraken_worker{EXE}'], log, env=env)
+
+
 def step_deps(settings, log):
     found = tools(settings)
-    names = {'cxx': 'llvm_mingw', 'cmake': 'cmake', 'ninja': 'ninja', 'git': 'git', 'dotnet': 'dotnet'}
-    missing = [k for k in names if not found[k]]
-    if missing and os.name != 'nt':
-        raise SetupError(f'install these and run setup again: {", ".join(names[k] for k in missing)}')
-    for k in missing:  # Windows: the pinned official archive (or name your own with --tool <name>=<path>)
-        fetch_archive(names[k], log)
+    prebuilt = bool(found['harness'])  # a release's shader translator: no .NET SDK, no Ryujinx checkout, no git
+    if WINDOWS:
+        names = {'cxx': 'llvm_mingw', 'cmake': 'cmake', 'ninja': 'ninja'}
+        if not prebuilt:
+            names.update(git='git', dotnet='dotnet')
+        for k in [k for k in names if not found[k]]:  # the pinned official archive (or --tool <name>=<path>)
+            fetch_archive(names[k], log)
+    else:
+        names = {'cxx': 'clang++', 'cmake': 'cmake', 'ninja': 'ninja'}
+        if not prebuilt:
+            names.update(git='git', dotnet='dotnet (a .NET 10 SDK)')
+        missing = [k for k in names if not found[k]]
+        if missing:
+            raise SetupError(f'install these (or use a release, which brings them) and run setup again: '
+                             f'{", ".join(names[k] for k in missing)}')
     found = tools(settings)
     if any(not found[k] for k in names):
         raise SetupError(f'still missing: {", ".join(names[k] for k in names if not found[k])}')
     env = build_env(found)
     t = WIN / 'tools'
-    # Python packages for the recompiler (lz4, capstone) in a venv of their own. lz4 4.4.4 (the pin) has no Windows
-    # wheel for current Pythons and needs MSVC to build; 4.4.5 is the same lz4.block the recompiler calls.
-    venv = t / 'venv/Scripts/python.exe'
-    if not venv.exists():
+    # Python packages for the recompiler (lz4, capstone) in a venv of their own, unless the Python already has them
+    # (a release's Linux Python). A release's wheels/ installs them offline. lz4 4.4.4 (the pin) has no Windows wheel
+    # for current Pythons and needs MSVC to build; 4.4.5 is the same lz4.block the recompiler calls.
+    venv = t / ('venv/Scripts/python.exe' if WINDOWS else 'venv/bin/python')
+    if not has_packages(found['python']) and not venv.exists():
         say('deps: Python packages (venv)')
         run([sys.executable, '-m', 'venv', t / 'venv'], log)
         reqs = (ROOT / 'requirements-bayonetta3.txt').read_text(encoding='utf-8')
         pins = [line.strip() for line in reqs.splitlines() if line.strip() and not line.startswith('#')]
-        pins = ['lz4==4.4.5' if p.startswith('lz4==') and os.name == 'nt' else p for p in pins]
-        run([venv, '-m', 'pip', 'install', '--disable-pip-version-check', '--only-binary=:all:', *pins], log)
+        pins = ['lz4==4.4.5' if p.startswith('lz4==') and WINDOWS else p for p in pins]
+        offline = ['--no-index', '--find-links', TOOLSET / 'wheels'] if (TOOLSET / 'wheels').is_dir() else []
+        run([venv, '-m', 'pip', 'install', '--disable-pip-version-check', '--only-binary=:all:', *offline, *pins],
+            log)
+        found = tools(settings)
     if not found['vulkan'].joinpath('include/vulkan/vulkan.h').exists():
         say('deps: Vulkan headers')
         fetch_git(*VULKAN_HEADERS, found['vulkan'], log, env)
     if not found['decoder']:
-        say('deps: the Kraken decoder (ooz)')
-        ooz = t / 'ooz'
-        fetch_git(*OOZ, ooz, log, env)
-        out = t / 'kraken'
-        out.mkdir(parents=True, exist_ok=True)
-        run([found['cxx'], '-O2', '-w', '-include', 'sys/stat.h', '-Dmain=ooz_cli_main', '-c', ooz / 'kraken.cpp',
-             '-o', out / 'kraken.o'], log, env=env)
-        run([found['cxx'], '-O2', '-w', '-static', ROOT / 'tools/bayonetta3_shaders/kraken_worker_ooz.cpp',
-             out / 'kraken.o', ooz / 'bitknit.cpp', ooz / 'lzna.cpp', '-o', out / 'kraken_worker.exe'], log, env=env)
-        run([venv, ROOT / 'tools/test_kraken_worker.py', '--worker', out / 'kraken_worker.exe'], log, env=env)
+        build_kraken(found, env, log)
+        found = tools(settings)
     ryu = found['ryujinx']
-    if not (ryu / 'src/Ryujinx.Graphics.Shader/bin/Release/net10.0/Spv.Generator.dll').exists():
+    if not prebuilt and not (ryu / 'src/Ryujinx.Graphics.Shader/bin/Release/net10.0/Spv.Generator.dll').exists():
         say('deps: the Ryujinx 1.3.2 shader translator')
         checkout = t / 'bayonetta3-mobile'
         fetch_git(RYUJINX[0], RYUJINX[1], checkout, log, env, sparse=RYUJINX[2])
@@ -367,12 +456,15 @@ def step_deps(settings, log):
         say('deps: spirv-val (SPIRV-Tools, about 10 minutes)')
         src = t / 'SPIRV-Tools'
         fetch_git(*SPIRV_TOOLS, src, log, env)
-        run([venv, src / 'utils/git-sync-deps'], log, cwd=src, env=env)
+        run([found['python'], src / 'utils/git-sync-deps'], log, cwd=src, env=env)
+        static = '-static' if WINDOWS else '-static-libstdc++ -static-libgcc'
         run([found['cmake'], '-S', src, '-B', src / 'build', '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
              f'-DCMAKE_C_COMPILER={found["cc"]}', f'-DCMAKE_CXX_COMPILER={found["cxx"]}', '-DSPIRV_SKIP_TESTS=ON',
-             '-DSPIRV_WERROR=OFF', '-DCMAKE_EXE_LINKER_FLAGS=-static'], log, env=env)
+             '-DSPIRV_WERROR=OFF', f'-DCMAKE_EXE_LINKER_FLAGS={static}'], log, env=env)
         run([found['cmake'], '--build', src / 'build', '--target', 'spirv-val'], log, env=env)
-    if not found['opus'].exists():
+    if not WINDOWS and not found['opus'].exists():
+        say('deps: no bundled libopus: the game uses the system libopus.so.0 (install libopus if voices are silent)')
+    if WINDOWS and not found['opus'].exists():
         say('deps: libopus')
         work = t / 'opus-src'
         work.mkdir(parents=True, exist_ok=True)
@@ -466,7 +558,7 @@ def step_shaders(settings, log):
         published = WIN / 'shaders' / program
         if (published / 'spirv/results.tsv').exists():
             continue
-        say(f'shaders: {program} (extract, translate, verify: 30-90 minutes)')
+        say(f'shaders: {program} (extract, translate, verify: 10-60 minutes)')
         exefs, romfs = local_layout(settings, program)
         game = WIN / 'game' / program  # ExeFS/ + RomFS/ as the shader tool expects them
         junction(game / 'ExeFS', exefs)
@@ -477,11 +569,18 @@ def step_shaders(settings, log):
         common = ['--config', PROGRAMS[program][0], '--work', work]
         tool = [found['python'], ROOT / 'tools/bayonetta3_shaders.py']
         run(tool + ['extract', '--game', game, '--decoder', found['decoder']] + common, log, env=env)
-        run(tool + ['build', '--dotnet', found['dotnet'], '--ryu-shader', ryu / 'src/Ryujinx.Graphics.Shader',
-                    '--ryu-lib', ryu / 'src/Ryujinx.Graphics.Shader/bin/Release/net10.0'] + common, log, env=env)
-        run(tool + ['translate', '--dotnet', found['dotnet'], '--spirv-val', found['spirv_val']] + common,
+        if found['harness']:  # a release's prebuilt translator: nothing to build, no .NET
+            translator = ['--harness', found['harness']]
+            run(tool + ['build'] + translator + common, log, env=env)
+        else:
+            translator = ['--dotnet', found['dotnet']]
+            run(tool + ['build', '--dotnet', found['dotnet'], '--ryu-shader', ryu / 'src/Ryujinx.Graphics.Shader',
+                        '--ryu-lib', ryu / 'src/Ryujinx.Graphics.Shader/bin/Release/net10.0'] + common, log, env=env)
+        run(tool + ['translate', *translator, '--spirv-val', found['spirv_val']] + common, log, env=env)
+        cflags, ldflags = linux_flags(found)
+        extra = [f'--cxx-flag={f}' for f in cflags + ldflags]
+        run(tool + ['verify', '--cxx', found['cxx'], *extra, '--spirv-val', found['spirv_val']] + common,
             log, env=env)
-        run(tool + ['verify', '--cxx', found['cxx'], '--spirv-val', found['spirv_val']] + common, log, env=env)
         if published.exists():
             shutil.rmtree(published)
         run(tool + ['publish', '--publish-dir', published] + common, log, env=env)
@@ -492,18 +591,36 @@ def step_build(settings, log, jobs):
     env = build_env(found)
     for program in programs(settings):
         build = WIN / 'build' / program
-        say(f'build: {PROGRAMS[program][1]}.exe (the generated code: 10-30 minutes the first time)')
+        say(f'build: {PROGRAMS[program][1]}{EXE} (the generated code: 10-30 minutes the first time)')
         if not (build / 'build.ninja').exists():
-            run([found['cmake'], '-S', ROOT, '-B', build, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
-                 f'-DNX_GAME={PROGRAMS[program][1]}', f'-DNX_GEN_DIR={(WIN / "cpu" / program / "gen").as_posix()}',
-                 f'-DCMAKE_C_COMPILER={found["cc"]}', f'-DCMAKE_CXX_COMPILER={found["cxx"]}',
-                 f'-DNX_VULKAN_SDK={found["vulkan"].as_posix()}', '-DNX_RECOMP_OPT=2'], log, env=env)
+            args = [found['cmake'], '-S', ROOT, '-B', build, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
+                    f'-DNX_GAME={PROGRAMS[program][1]}', f'-DNX_GEN_DIR={(WIN / "cpu" / program / "gen").as_posix()}',
+                    f'-DCMAKE_C_COMPILER={found["cc"]}', f'-DCMAKE_CXX_COMPILER={found["cxx"]}',
+                    f'-DNX_VULKAN_SDK={found["vulkan"].as_posix()}', '-DNX_RECOMP_OPT=2']
+            if not WINDOWS:
+                cflags, ldflags = linux_flags(found)
+                if cflags:  # the release's clang: its sysroot as a flag (CMAKE_SYSROOT would re-root every find)
+                    llvm = found['cxx'].parent
+                    args += [f'-DCMAKE_C_FLAGS={" ".join(cflags)}', f'-DCMAKE_CXX_FLAGS={" ".join(cflags)}',
+                             f'-DCMAKE_EXE_LINKER_FLAGS={" ".join(ldflags)}', f'-DCMAKE_AR={llvm / "llvm-ar"}',
+                             f'-DCMAKE_RANLIB={llvm / "llvm-ranlib"}']
+                if found.get('sdl3'):
+                    args.append(f'-DCMAKE_PREFIX_PATH={found["sdl3"]}')
+            run(args, log, env=env)
         run([found['cmake'], '--build', build, '--target', PROGRAMS[program][1]] +
             (['--parallel', str(jobs)] if jobs else []), log, env=env)
-        runtime = found['cxx'].parent.parent / TRIPLET / 'bin'  # the target's own (bin/ holds the host's)
-        for dll in ('libc++.dll', 'libunwind.dll'):  # llvm-mingw's C++ runtime
-            shutil.copyfile(runtime / dll if (runtime / dll).exists() else found['cxx'].parent / dll, build / dll)
-        shutil.copyfile(found['opus'], build / 'libopus.dll')
+        if WINDOWS:
+            runtime = found['cxx'].parent.parent / TRIPLET / 'bin'  # the target's own (bin/ holds the host's)
+            for dll in ('libc++.dll', 'libunwind.dll'):  # llvm-mingw's C++ runtime
+                shutil.copyfile(runtime / dll if (runtime / dll).exists() else found['cxx'].parent / dll, build / dll)
+            shutil.copyfile(found['opus'], build / 'libopus.dll')
+        else:  # the shared libraries the game loads, beside it (play puts this folder on LD_LIBRARY_PATH)
+            libs = [found['opus']] if found['opus'].is_file() else []
+            if found.get('sdl3'):
+                libs += [p for p in (found['sdl3'] / 'lib').glob('libSDL3.so*') if not p.is_symlink()]
+            for lib in libs:
+                name = 'libSDL3.so.0' if lib.name.startswith('libSDL3') else lib.name
+                shutil.copyfile(lib, build / name)
 
 
 def data_roots():
@@ -749,7 +866,7 @@ def play(a):
     if settings.get('dump') and not links_ok(settings):
         say('play: the folder moved (or a link broke): linking the data roots again')
         step_link(settings, None)
-    exes = {0: WIN / 'build/b3/bayonetta3.exe', 1: WIN / 'build/prog1/bayonetta3prog1.exe'}
+    exes = {0: WIN / f'build/b3/bayonetta3{EXE}', 1: WIN / f'build/prog1/bayonetta3prog1{EXE}'}
     roots = {0: b3_root, 1: prog1_root}
     if not exes[0].exists():
         raise SetupError('not set up yet: python tools/b3_win.py setup --dump <your dump folder>')
@@ -762,6 +879,13 @@ def play(a):
         base.pop(name, None)
     base.update(conf_env(conf))
     base['NX_SETTINGS_FILE'] = str(conf.resolve())  # the in-game settings panel (F1) saves its changes here
+    if not WINDOWS:
+        # Linux: the libraries copied beside the game (SDL3, libopus) and the release's ffmpeg/ffprobe (cutscenes).
+        found = tools(settings)
+        libdirs = [str(WIN / 'build/b3'), str(WIN / 'build/prog1')]
+        base['LD_LIBRARY_PATH'] = os.pathsep.join(libdirs + [base.get('LD_LIBRARY_PATH', '')]).rstrip(os.pathsep)
+        if found.get('bin'):
+            base['PATH'] = os.pathsep.join([str(found['bin']), base.get('PATH', '')])
     log = Path(base.get('NX_LOG') or WIN / 'logs/game.log')
     log.parent.mkdir(parents=True, exist_ok=True)
     program, switches = 0, 0
@@ -825,8 +949,13 @@ PACKAGE_REFUSED = ('.pkz', '.nso', '.nca', '.nsp', '.xci', '.keys', '.npdm', '.s
 LAUNCH_CMD = r'''@echo off
 rem Bayonetta 3 Recomp: double-click for the launcher (Set up from your dump the first time, then Start game).
 rem The console route: Bayonetta3Recomp.cmd console (setup in this window, then the launcher).
+rem Bayonetta3Recomp.cmd play starts the game directly (a Steam shortcut's target, with "play" as its launch option).
 setlocal
 cd /d "%~dp0"
+if /i "%~1"=="play" if exist "python\python.exe" (
+    python\python.exe tools\b3_win.py play
+    exit /b
+)
 if /i not "%~1"=="console" if exist "python\pythonw.exe" (
     start "" "python\pythonw.exe" tools\b3_launcher.py
     exit /b 0
@@ -858,34 +987,76 @@ def package_files():
     return files
 
 
+LAUNCH_SH = r'''#!/bin/sh
+# Bayonetta 3 Recomp (Linux / Steam Deck): the launcher (Set up from your dump the first time, then Start game).
+#   ./Bayonetta3Recomp.sh --play     start the game directly: the target of a Steam "non-Steam game" shortcut
+#   ./Bayonetta3Recomp.sh --setup    set up in this terminal (asks for your dump folder), without the launcher
+HERE=$(cd "$(dirname "$0")" && pwd)
+cd "$HERE" || exit 1
+PY="$HERE/toolset/python/bin/python3"
+[ -x "$PY" ] || PY=python3
+export B3_SDL3="$HERE/toolset/sdl3/lib/libSDL3.so.0"
+case "$1" in
+    --play) shift; exec "$PY" tools/b3_win.py play "$@" ;;
+    --setup) shift; exec "$PY" tools/b3_win.py first-run --no-launcher "$@" ;;
+esac
+exec "$PY" tools/b3_launcher.py "$@"
+'''
+
+
 def package(a):
     import zipfile
+    import tarfile
     version = a.version or subprocess.run(['git', 'describe', '--tags', '--always', '--dirty'], cwd=str(ROOT),
                                           capture_output=True, text=True).stdout.strip() or 'dev'
-    name = f'Bayonetta3Recomp-{version}-windows-x64'
+    name = f'Bayonetta3Recomp-{version}-{"windows-x64" if WINDOWS else "linux-x86_64"}'
     out_dir = Path(a.out).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    zpath = out_dir / f'{name}.zip'
     files = package_files()
+    toolset = Path(a.toolset).resolve() if a.toolset else None
+    if toolset and not (toolset / 'TOOLSET.txt').is_file():
+        raise SetupError(f'{toolset} is not a toolset (tools/build_toolset.py makes one)')
     count = 0
-    with zipfile.ZipFile(zpath, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-        for f in files:
-            src = ROOT / f
-            if src.is_file():
-                z.write(src, f'{name}/{f}')
-                count += 1
-        z.writestr(f'{name}/Bayonetta3Recomp.cmd', LAUNCH_CMD.replace('\n', '\r\n'))
-        if a.python:
-            py = Path(a.python).resolve()
-            if not (py / 'python.exe').exists():
-                raise SetupError(f'{py} has no python.exe')
-            for path in sorted(py.rglob('*')):
-                if path.is_file() and '__pycache__' not in path.parts and 'site-packages' not in path.parts:
-                    z.write(path, f'{name}/python/{path.relative_to(py).as_posix()}')
+    if WINDOWS:
+        zpath = out_dir / f'{name}.zip'
+        with zipfile.ZipFile(zpath, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+            for f in files:
+                src = ROOT / f
+                if src.is_file():
+                    z.write(src, f'{name}/{f}')
+                    count += 1
+            z.writestr(f'{name}/Bayonetta3Recomp.cmd', LAUNCH_CMD.replace('\n', '\r\n'))
+            if a.python:
+                py = Path(a.python).resolve()
+                if not (py / 'python.exe').exists():
+                    raise SetupError(f'{py} has no python.exe')
+                for path in sorted(py.rglob('*')):
+                    if path.is_file() and '__pycache__' not in path.parts and 'site-packages' not in path.parts:
+                        z.write(path, f'{name}/python/{path.relative_to(py).as_posix()}')
+            if toolset:
+                for path in sorted(toolset.rglob('*')):
+                    if path.is_file():
+                        z.write(path, f'{name}/toolset/{path.relative_to(toolset).as_posix()}')
+    else:
+        # Linux: a tar keeps the toolset's symlinks (clang++ -> clang-23, the sysroot's libraries) and exec bits.
+        zpath = out_dir / f'{name}.tar.gz'
+        with tarfile.open(zpath, 'w:gz', compresslevel=9) as tar:
+            for f in files:
+                src = ROOT / f
+                if src.is_file():
+                    tar.add(src, f'{name}/{f}', recursive=False)
+                    count += 1
+            info = tarfile.TarInfo(f'{name}/Bayonetta3Recomp.sh')
+            data = LAUNCH_SH.encode()
+            info.size, info.mode = len(data), 0o755
+            import io
+            tar.addfile(info, io.BytesIO(data))
+            if toolset:
+                tar.add(toolset, f'{name}/toolset', filter=lambda ti: None if '__pycache__' in ti.name else ti)
     digest = hashlib.sha256(zpath.read_bytes()).hexdigest()
     zpath.with_name(zpath.name + '.sha256').write_text(f'{digest}  {zpath.name}\n', encoding='utf-8')
-    say(f'package: {zpath} ({count} files{", with Python" if a.python else ""}, '
-        f'{zpath.stat().st_size / 1e6:.1f} MB), sha256 {digest}')
+    say(f'package: {zpath} ({count} files{", with Python" if a.python else ""}'
+        f'{", with the toolset" if toolset else ""}, {zpath.stat().st_size / 1e6:.1f} MB), sha256 {digest}')
     return 0
 
 
@@ -916,10 +1087,12 @@ def main(argv=None):
     f.add_argument('--data', choices=['link', 'copy', 'move', 'keep'], help='as for setup')
     f.add_argument('--no-launcher', action='store_true', help='stop after setup')
     f.set_defaults(func=first_run)
-    k = sub.add_parser('package', help='a release zip of this checkout (tracked files only, no game data)')
+    k = sub.add_parser('package', help='a release archive of this checkout (tracked files and the toolset, no game '
+                       'data): a .zip on Windows, a .tar.gz on Linux')
     k.add_argument('--out', default=str(ROOT / 'dist'), help='where the zip goes (default: dist/)')
     k.add_argument('--version', help='the name in the zip (default: git describe)')
     k.add_argument('--python', help='a Python install folder to bundle as python/ (python.exe, Lib, DLLs, tcl)')
+    k.add_argument('--toolset', help='a toolset folder (tools/build_toolset.py) to bundle as toolset/')
     k.set_defaults(func=package)
     a = p.parse_args(argv)
     try:

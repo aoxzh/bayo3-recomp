@@ -33,6 +33,31 @@ The runtime data root is a separate directory holding `analysis/`, `spirv/`, `ex
 
 ## Linux / Steam Deck
 
+### From a release (Steam Deck, or any x86-64 distribution)
+
+The release archive `Bayonetta3Recomp-<version>-linux-x86_64.tar.gz` holds everything the setup needs besides your
+dump: Clang and lld with a glibc sysroot, CMake and Ninja, SDL3, a Python with the recompiler's packages, the shader
+translator (self-contained, no .NET), `spirv-val`, libopus, the Vulkan headers and a minimal ffmpeg for the
+cutscenes. Nothing is installed on the system, so it works on SteamOS's read-only system in Desktop Mode, and nothing
+is downloaded except the Kraken decoder's pinned source (about 100 KB, compiled on your machine). It needs a Vulkan
+1.3 driver (Mesa RADV on the Deck) and glibc 2.35 or newer (an up-to-date SteamOS 3, Ubuntu 22.04, Fedora 36 and later).
+
+1. Put your dump on the Deck (internal storage or the SD card): a folder with `exefs/` and `romfs/` of 1.2.0, and
+   for the Old Picture Book `program1/` inside it, as described for Windows below.
+2. Unpack the archive on a drive with about 25 GB free (the game data is hard-linked from the dump when both are on
+   the same drive, at no extra space) and start `Bayonetta3Recomp.sh` (in Dolphin: right-click, Run in Konsole; or
+   `./Bayonetta3Recomp.sh` in a terminal).
+3. The launcher offers **Set up from my dump**: pick the dump folder. The setup checks the dump against the 1.2.0
+   hashes, generates the code, translates and verifies the shaders, builds the game and links its data. It is
+   resumable. `./Bayonetta3Recomp.sh --setup` does the same in the terminal.
+4. **Start game**. For Game Mode, add `Bayonetta3Recomp.sh` to Steam as a non-Steam game and set its launch options
+   to `--play`: Steam then starts the game directly, without the launcher.
+
+Settings and saves work as on Windows (`private/b3.conf`, `private/win/run/b3/user/`); the game log is
+`private/win/logs/game.log`. A newer release unpacked over the folder keeps all of it; then choose **Rebuild**.
+
+### The developer route
+
 Install Clang, CMake 3.25+, Ninja, the SDL3 development files, Vulkan headers and loader, and a working GPU driver, along with host libopus and ffmpeg. Vulkan headers must be compatible with the project's recorded 1.4.357 dependency. If SDL3 lives outside the normal search paths, set `CMAKE_PREFIX_PATH`.
 
 To keep the whole game inside this folder (so it can be moved, and the dump is no longer needed), bring the dump in
@@ -77,8 +102,11 @@ On Windows one tool does the preparation, the build and the launch, natively, wi
 - A Vulkan driver (every current GPU driver has one) and, for the cutscenes, the free "VP9 Video Extensions" from
   the Microsoft Store.
 
-The build toolchain — llvm-mingw 20261020, CMake, Ninja, MinGit and the .NET 10 SDK — is downloaded by the setup
-from the official releases (hash-checked, about 600 MB, into `private/win/tools/`) unless it is already installed.
+A release zip carries in `toolset/` the tools that would otherwise be built on your PC: the shader translator
+(self-contained, no .NET), `spirv-val`, libopus, the Vulkan headers and the Python packages. The compiler toolchain —
+llvm-mingw 20261020, CMake and Ninja — is downloaded by the setup from the official releases (hash-checked, about
+200 MB, into `private/win/tools/`) unless it is already installed. From a plain checkout without `toolset/` the setup
+also fetches MinGit and the .NET 10 SDK and builds those tools itself.
 
 ```bat
 python tools\b3_win.py setup --dump D:\dumps\bayonetta3
@@ -112,8 +140,9 @@ about 25 dB on the rare block with several distinct colours.
 game's RomFS: a file there replaces the game's file of that name. Folders apply in name order and a later one wins;
 rename a folder to start with `-` to switch it off. The log lists the mods it found (`fs: mod ...`).
 
-**A release zip** of this checkout: `python tools\b3_win.py package [--python <a Python install folder>]` writes
-`dist\Bayonetta3Recomp-<version>-windows-x64.zip` and its `.sha256`. It holds the tracked files only (it refuses
+**A release zip** of this checkout: `python tools\b3_win.py package [--python <a Python install folder>]
+[--toolset <folder>]` writes `dist\Bayonetta3Recomp-<version>-windows-x64.zip` (on Linux:
+`-linux-x86_64.tar.gz` with `Bayonetta3Recomp.sh`) and its `.sha256`; `tools/build_toolset.py` makes the toolset. It holds the tracked files only (it refuses
 anything under `private/` and game file formats) and a `Bayonetta3Recomp.cmd` that, on first double-click, asks for
 the dump folder, runs the setup and then opens the launcher (`b3_win.py first-run`). Make releases from the public
 tree: its CI (`.github/workflows/ci.yml`) runs the unit tests, builds this zip with a bundled Python on every push,

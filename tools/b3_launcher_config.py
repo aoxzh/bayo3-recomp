@@ -21,9 +21,11 @@ GROUP_TITLES = {
     'input': 'Controller',
     'audio': 'Audio',
     'system': 'System',
+    'mods': 'Mods',
     'advanced': 'Advanced',
 }
 GROUPS = tuple(GROUP_TITLES)
+LIST_GROUPS = ('mods',)  # tabs filled from the disk (mods_of), not from SETTINGS
 
 LANGUAGES = (
     ('en-US', 'English (US)'),
@@ -365,16 +367,26 @@ def repo_root(start=None):
 def host_platform():
     if os.name == 'nt':
         return 'win'
+    # Linux with a release's toolset (or a setup tools/b3_win.py made): the same player flow as Windows, set up and
+    # started by tools/b3_win.py. A developer checkout without either keeps scripts/b3_play.sh.
+    root = repo_root()
+    if (root / 'toolset').is_dir() or (root / 'private' / 'win' / 'state.json').is_file():
+        return 'player'
     return 'linux'
+
+
+def player_flow(host=None):
+    """Whether tools/b3_win.py sets the game up and starts it on this host (Windows, or a Linux release)."""
+    return (host or host_platform()) in ('win', 'player')
 
 
 def install_layout(host=None):
     """{entry script, binary, data root, log} relative to the repo, for one host."""
     host = host or host_platform()
-    if host == 'win':
+    if host in ('win', 'player'):
         return {
             'play': Path('tools') / 'b3_win.py',
-            'binary': Path('private') / 'win' / 'build' / 'b3' / 'bayonetta3.exe',
+            'binary': Path('private') / 'win' / 'build' / 'b3' / ('bayonetta3.exe' if host == 'win' else 'bayonetta3'),
             'data': Path('private') / 'win' / 'run' / 'b3',
             'log': Path('private') / 'win' / 'logs' / 'game.log',
         }
@@ -400,9 +412,45 @@ def paths(root, host=None):
     }
 
 
+# ---- mods ------------------------------------------------------------------------------------------------------
+# runtime/src/hle_fs.cpp scan_mods: every folder under <data root>/mods replaces game files by their RomFS path; folders
+# apply in name order (a later one wins) and a name starting with '-' or '.' is off. The launcher switches a mod by
+# adding or removing that '-', so the order of the mods that are on never changes.
+
+def mods_dir(root, host=None):
+    return paths(root, host)['data'] / 'mods'
+
+
+def mods_of(root, host=None):
+    """[(name, folder, on)] in the order the runtime applies them; name is the folder without its '-'."""
+    folder = mods_dir(root, host)
+    if not folder.is_dir():
+        return []
+    found = []
+    for entry in folder.iterdir():
+        if not entry.is_dir() or entry.name.startswith('.'):
+            continue
+        on = not entry.name.startswith('-')
+        found.append((entry.name.lstrip('-') if not on else entry.name, entry.name, on))
+    return sorted(found, key=lambda m: m[0])
+
+
+def set_mod(root, folder, on, host=None):
+    """Switch one mod folder on or off; returns its new folder name."""
+    base = mods_dir(root, host)
+    name = folder.lstrip('-')
+    target = name if on else '-' + name
+    if target == folder:
+        return folder
+    if (base / target).exists():
+        raise OSError(f'{base / target} already exists')
+    (base / folder).rename(base / target)
+    return target
+
+
 def build_hint(host=None):
     """The cmake target directory to build when the launcher finds no binary."""
-    if (host or host_platform()) == 'win':
+    if player_flow(host):
         return 'python tools/b3_win.py setup --dump <your dump folder>'
     return 'cmake --build private/build-deck'
 

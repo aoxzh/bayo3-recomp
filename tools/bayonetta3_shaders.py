@@ -269,7 +269,21 @@ def env(a):
     return e
 
 
+def harness_cmd(a):
+    """How to start the translator: a prebuilt one (--harness, a release's toolset: no .NET SDK needed), else the one
+    `build` made, run by dotnet."""
+    if a.harness:
+        return [str(a.harness)]
+    return [str(a.dotnet), str(WORK/'build/bin/Release/net10.0/Ryujinx.Graphics.Shader.dll')]
+
+
 def build(a):
+    if a.harness:
+        # A prebuilt translator (tools/build_toolset.py publishes the same project self-contained): nothing to build.
+        js(WORK/'build-provenance.json', dict(prebuilt=str(a.harness.resolve()), harness_sha256=sha(a.harness),
+           note='Prebuilt ShaderHarness (tools/build_toolset.py): the same sources, published self-contained.'))
+        print('Using the prebuilt harness; provenance recorded', flush=True)
+        return
     project = ROOT/'tools/bayonetta3_shaders/ShaderHarness.csproj'
     cmd = [str(a.dotnet), 'build', str(project), '-c', 'Release', '-m:1',
            '-p:RyuShader='+str(a.ryu_shader.resolve()), '-p:RyuLib='+str(a.ryu_lib.resolve()),
@@ -309,15 +323,16 @@ def translate(a):
     all_results = []
     # Batches bound the lifetime and memory of the .NET compiler. Timeout kills
     # the whole process; partial outputs are never published without results/val.
-    for number, start in enumerate(range(0, len(rows), a.batch_size)):
+    # Batches are independent processes with their own output folders, so --parallel runs several at once; their
+    # results are merged in batch order, so the published set does not depend on which finished first.
+    def run_batch(number, start):
         batch = rows[start:start+a.batch_size]
         with tempfile.TemporaryDirectory(dir=TMP, prefix='batch-') as temp:
             manifest = Path(temp)/'manifest.tsv'
             table(manifest, MANIFEST, [dict(r, code_file=str(source/r['code_file']), ctrl_file=str(source/r['ctrl_file'])) for r in batch])
             dest = raw/f'{number:04d}'
             dest.mkdir(exist_ok=False)
-            cmd = [str(a.dotnet), str(WORK/'build/bin/Release/net10.0/Ryujinx.Graphics.Shader.dll'),
-                   '--batch', str(temp), '--out', str(dest), '--jobs', '1', '--debug-mode',
+            cmd = harness_cmd(a) + ['--batch', str(temp), '--out', str(dest), '--jobs', '1', '--debug-mode',
                    '--spirv-val', str(a.spirv_val), '--target-env', 'vulkan1.2']
             with (dest/'process.log').open('w') as log:
                 try:
@@ -330,6 +345,18 @@ def translate(a):
             else:
                 results = [dict(hash=r['code_sha1_16'], group='root_000', stage=r['stage'], status='process-failure',
                                 error=f'batch {number} exit {code}; see translation-raw/{number:04d}/process.log') for r in batch]
+        return dest, results
+
+    import concurrent.futures
+    starts = list(range(0, len(rows), a.batch_size))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, a.parallel)) as pool:
+        futures = [pool.submit(run_batch, number, start) for number, start in enumerate(starts)]
+        done = 0
+        for future in concurrent.futures.as_completed(futures):
+            done += 1
+            print(f'translated batch {done}/{len(starts)}', flush=True)
+        for number, future in enumerate(futures):
+            dest, results = future.result()
             for r in results:
                 r['group'] = 'root_000'
                 if r['status'] in ('ok', 'ok-retry') and r.get('translator_messages', '').strip():
@@ -339,8 +366,8 @@ def translate(a):
                     module = dest/(r['hash']+'.spv')
                     shutil.copyfile(module, out/module.name)
                 all_results.append(r)
-            table(WORK/'results-all.tsv', RESULTS, all_results)
-            print(f"translated {start+len(batch)}/{len(rows)}: {dict(collections.Counter(r['status'] for r in all_results))}", flush=True)
+    table(WORK/'results-all.tsv', RESULTS, all_results)
+    print(f"translated {len(all_results)}/{len(rows)}: {dict(collections.Counter(r['status'] for r in all_results))}", flush=True)
     good = [r for r in all_results if r['status'] in ('ok', 'ok-retry')]
     table(out/'results.tsv', RESULTS, good)
     js(WORK/'translation-summary.json', dict(total=len(all_results), accepted=len(good),
@@ -379,7 +406,7 @@ def verify(a):
     compiler = a.cxx or shutil.which('clang++') or shutil.which('g++')
     if not compiler:
         raise ValueError('C++20 compiler required for runtime contract verification')
-    cmd = [compiler, '-std=c++20', '-O2', '-DNX_SHADERS_STANDALONE',
+    cmd = [compiler, *a.cxx_flag, '-std=c++20', '-O2', '-DNX_SHADERS_STANDALONE',
            '-I'+str(ROOT/'runtime/src/nvn'), str(ROOT/'tools/bayonetta3_shaders/verify.cpp'),
            str(ROOT/'runtime/src/nvn/nvn_shaders.cpp'), str(ROOT/'runtime/src/nvn/nvn_spirv_reflect.cpp'),
            '-o', str(WORK/('verify-shaders'+EXE))]
@@ -445,11 +472,17 @@ def main():
     p.add_argument('--config', type=Path, default=ROOT/'config/bayonetta3-1.2.0.json',
                    help='version configuration of the program to extract (config/bayonetta3-1.2.0-prog1.json for program 1)')
     p.add_argument('--cxx', help='C++20 compiler for verify (default: clang++ or g++ on PATH)')
+    p.add_argument('--cxx-flag', action='append', default=[],
+                   help="an extra flag for that compiler, repeatable (the release toolset's clang: its --sysroot and lld)")
     p.add_argument('--decoder', type=Path, help='path to a compatible Kraken decoder worker (required for extract)')
     p.add_argument('--dotnet', type=Path, default=shutil.which('dotnet'), help='dotnet executable (default: PATH)')
     p.add_argument('--ryu-shader', type=Path, help='Ryujinx.Graphics.Shader source directory (required for build)')
     p.add_argument('--ryu-lib', type=Path, help='directory containing Ryujinx.Common.dll and Spv.Generator.dll (required for build)')
     p.add_argument('--spirv-val', type=Path, default=shutil.which('spirv-val'), help='spirv-val executable (default: PATH)')
+    p.add_argument('--harness', type=Path, help='a prebuilt translator executable (a release toolset): build and '
+                   'translate then need no .NET SDK')
+    p.add_argument('--parallel', type=int, default=max(1, min(8, (os.cpu_count() or 2) // 2)),
+                   help='translator batches run at once (default: half the cores, at most 8)')
     p.add_argument('--batch-size', type=int, default=100)
     p.add_argument('--batch-timeout', type=int, default=300)
     p.add_argument('--limit', type=int, default=0)
@@ -457,13 +490,17 @@ def main():
     actions = ['extract', 'build', 'translate', 'verify'] if a.action == 'all' else [a.action]
     if 'extract' in actions and (not a.decoder or not a.decoder.is_file()):
         p.error('extract requires --decoder pointing to a compatible Kraken worker')
-    if 'build' in actions:
+    if 'build' in actions and not a.harness:
         if not a.ryu_shader or not a.ryu_shader.is_dir():
             p.error('build requires --ryu-shader pointing to the Ryujinx shader source directory')
         if not a.ryu_lib or any(not (a.ryu_lib / name).is_file()
                                 for name in ('Ryujinx.Common.dll', 'Spv.Generator.dll')):
             p.error('build requires --ryu-lib containing Ryujinx.Common.dll and Spv.Generator.dll')
+    if a.harness and not a.harness.is_file():
+        p.error(f'--harness {a.harness} is not a file')
     for name, needed in (('dotnet', {'build', 'translate'}), ('spirv_val', {'translate', 'verify'})):
+        if name == 'dotnet' and a.harness:
+            continue
         if needed.intersection(actions):
             value = getattr(a, name)
             executable = shutil.which(str(value)) if value else None

@@ -288,8 +288,7 @@ uint32_t screen_refresh_hz() {
     static const uint32_t hz = [] () -> uint32_t {
         if (!g_window) return 0;
         const SDL_DisplayMode* mode = SDL_GetWindowFullscreenMode(g_window);
-        SDL_DisplayMode current{};
-        if (!mode && SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(g_window), &current)) mode = &current;
+        if (!mode) mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(g_window));
         const float rate = mode ? mode->refresh_rate : 0.0f;
         const uint32_t rounded = uint32_t(rate + 0.5f);
         return rounded >= 24 && rounded <= 480 ? rounded : 0;
