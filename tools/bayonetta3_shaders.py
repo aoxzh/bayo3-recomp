@@ -124,9 +124,22 @@ def dat_leaves(data, prefix, base=0, depth=0):
         yield from dat_leaves(extent(data, off, size), prefix+'!'+name, base+off, depth+1)
 
 
+# Android runs only the APK's own executables (W^X since API 29): a program this machine compiles (the Kraken worker,
+# the verifier) is built there as a shared library and started through the APK's runner (android/ondevice/dlmain.c).
+DLMAIN = os.environ.get('B3_DLMAIN')
+
+
+def program_cmd(path):
+    return ([DLMAIN] if DLMAIN else []) + [str(path)]
+
+
+def program_flags():
+    return ['-shared', '-fPIC', '-Dmain=b3_main'] if DLMAIN else []
+
+
 class Decoder:
     def __init__(self, path):
-        self.p = subprocess.Popen([str(path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        self.p = subprocess.Popen(program_cmd(path), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, cwd=TMP)
 
     def decode(self, data, size):
@@ -406,13 +419,13 @@ def verify(a):
     compiler = a.cxx or shutil.which('clang++') or shutil.which('g++')
     if not compiler:
         raise ValueError('C++20 compiler required for runtime contract verification')
-    cmd = [compiler, *a.cxx_flag, '-std=c++20', '-O2', '-DNX_SHADERS_STANDALONE',
+    cmd = [compiler, *a.cxx_flag, *program_flags(), '-std=c++20', '-O2', '-DNX_SHADERS_STANDALONE',
            '-I'+str(ROOT/'runtime/src/nvn'), str(ROOT/'tools/bayonetta3_shaders/verify.cpp'),
            str(ROOT/'runtime/src/nvn/nvn_shaders.cpp'), str(ROOT/'runtime/src/nvn/nvn_spirv_reflect.cpp'),
            '-o', str(WORK/('verify-shaders'+EXE))]
     subprocess.run(cmd, env=env(a), check=True)
     with (WORK/'verification.log').open('w') as log:
-        p = subprocess.run([str(WORK/('verify-shaders'+EXE)), str(WORK)], stdout=log, stderr=subprocess.STDOUT, env=env(a))
+        p = subprocess.run(program_cmd(WORK/('verify-shaders'+EXE)) + [str(WORK)], stdout=log, stderr=subprocess.STDOUT, env=env(a))
     if p.returncode:
         raise ValueError('runtime contract verification failed; see verification.log')
     results = list(csv.DictReader((WORK/'spirv/results.tsv').open(), delimiter='\t'))
@@ -431,7 +444,10 @@ def verify(a):
 
 def publish(a):
     destination = a.publish_dir.resolve()
-    if not destination.is_relative_to((ROOT/'private').resolve()) or destination.is_relative_to((ROOT/'private/bayonetta3').resolve()):
+    setup_tree = os.environ.get('B3_WIN_ROOT')  # as for --work
+    ours = destination.is_relative_to((ROOT/'private').resolve()) or (
+        setup_tree and destination.is_relative_to(Path(setup_tree).resolve()))
+    if not ours or destination.is_relative_to((ROOT/'private/bayonetta3').resolve()):
         raise ValueError('publish directory must be private and outside managed bayonetta3')
     if destination.exists():
         raise ValueError('publish destination exists; refusing overwrite')
@@ -509,7 +525,10 @@ def main():
             setattr(a, name, Path(executable))
     WORK = a.work.resolve()
     private = (ROOT/'private').resolve()
-    if not WORK.is_relative_to(private) or WORK.is_relative_to(private/'bayonetta3'):
+    # The setup's own tree may live elsewhere (B3_WIN_ROOT: the Android app's files, tests): its work is ours too.
+    setup_tree = os.environ.get('B3_WIN_ROOT')
+    ours = WORK.is_relative_to(private) or (setup_tree and WORK.is_relative_to(Path(setup_tree).resolve()))
+    if not ours or WORK.is_relative_to(private/'bayonetta3'):
         p.error('--work must be private and outside managed private/bayonetta3')
     if a.batch_size < 1 or a.batch_timeout < 1:
         p.error('batch limits must be positive')

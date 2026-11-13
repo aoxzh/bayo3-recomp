@@ -287,8 +287,19 @@ if(NX_TESTS AND NOT ANDROID)
     endif()
 endif()
 
+# The Android runtime as a static archive, without any generated code: what an APK carries so the phone itself compiles
+# the game from the player's dump and links it against this (tools/build_android_toolset.py; docs/PLAYING.md). The
+# archive holds only this repository's own code. The phone links lib<game>.so from it with -Wl,--whole-archive.
+option(NX_ANDROID_RUNTIME_ARCHIVE "Android: build lib<game>.a (the runtime only) instead of lib<game>.so" OFF)
+if(NX_ANDROID_RUNTIME_ARCHIVE AND NOT ANDROID)
+    message(FATAL_ERROR "NX_ANDROID_RUNTIME_ARCHIVE is for Android builds")
+endif()
+if(NX_ANDROID_RUNTIME_ARCHIVE)
+    set(NX_GAME_LIBRARIES)
+endif()
+
 # Without the generated code (a checkout with no game data) only the tests above are built.
-if(NOT NX_HAVE_GENERATED_CODE)
+if(NOT NX_HAVE_GENERATED_CODE AND NOT NX_ANDROID_RUNTIME_ARCHIVE)
     message(WARNING "No generated code in ${NX_GEN_DIR}/main: building the unit tests only")
     return()
 endif()
@@ -324,6 +335,9 @@ elseif(NX_SANITIZE_ACTIVE AND NX_SANITIZE_GAME)
 endif()
 
 foreach(mod IN LISTS NX_MODULES)
+    if(NX_ANDROID_RUNTIME_ARCHIVE)
+        break()
+    endif()
     file(GLOB src CONFIGURE_DEPENDS "${NX_GEN_DIR}/${mod}/*.cpp")
     if(NOT EXISTS "${NX_GEN_DIR}/${mod}/table.cpp" OR NOT src)
         message(FATAL_ERROR "Missing generated module ${mod}; run tools/prepare_bayonetta3.py --generate")
@@ -474,7 +488,12 @@ endif()
 if(ANDROID)
     # NativeActivity app: lib<game>.so, entry android_main (android_native_app_glue).
     set(GLUE "${ANDROID_NDK}/sources/android/native_app_glue")
-    add_library(${NX_GAME} SHARED ${NX_RUNTIME_SOURCES} runtime/src/platform_android.cpp
+    if(NX_ANDROID_RUNTIME_ARCHIVE)
+        set(NX_ANDROID_LIBRARY_KIND STATIC)
+    else()
+        set(NX_ANDROID_LIBRARY_KIND SHARED)
+    endif()
+    add_library(${NX_GAME} ${NX_ANDROID_LIBRARY_KIND} ${NX_RUNTIME_SOURCES} runtime/src/platform_android.cpp
         runtime/src/platform_android_input.cpp runtime/src/platform_android_audio.cpp runtime/src/memguard_android.cpp
         runtime/src/movie_android.cpp
         "${GLUE}/android_native_app_glue.c")

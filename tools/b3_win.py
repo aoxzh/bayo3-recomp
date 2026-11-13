@@ -52,6 +52,14 @@ WIN = Path(os.environ.get('B3_WIN_ROOT') or ROOT / 'private/win')  # B3_WIN_ROOT
 TOOLSET = Path(os.environ.get('B3_TOOLSET') or ROOT / 'toolset')
 WINDOWS = os.name == 'nt'
 EXE = '.exe' if WINDOWS else ''
+# Android: the in-app setup (android/ondevice, games/bayonetta3/java Setup*.java) runs this script with the APK's own
+# Python. The APK's tools live in its native library folder (B3_ANDROID_LIB: Android runs only those), the game data
+# in shared storage (B3_ANDROID_DATA, the runtime's data root), and the built game goes to B3_ANDROID_GAME.
+ANDROID = hasattr(sys, 'getandroidapilevel')
+ANDROID_LIB = Path(os.environ.get('B3_ANDROID_LIB') or '/nonexistent')
+ANDROID_DATA = Path(os.environ.get('B3_ANDROID_DATA') or '/sdcard/Bayonetta 3')
+ANDROID_GAME = Path(os.environ.get('B3_ANDROID_GAME') or '/nonexistent')
+ANDROID_API = 29
 STATE = WIN / 'state.json'
 SETTINGS = WIN / 'setup.json'
 STEPS = ['deps', 'verify', 'data', 'cpu', 'shaders', 'build', 'link']
@@ -253,6 +261,17 @@ def tools(settings):
         found['cc'] = found['cxx'] and found['cxx'].with_name(found['cxx'].name.replace('clang++', 'clang'))
         found['opus'] = Path(given['opus']) if given.get('opus') else (
             ts / 'bin/libopus.dll' if (ts / 'bin/libopus.dll').is_file() else t / 'opus/libopus.dll')
+    elif ANDROID:
+        lib, bin_dir = ANDROID_LIB, android_bin()
+        found = {
+            'cxx': bin_dir / 'clang++', 'cc': bin_dir / 'clang', 'cmake': None, 'ninja': None, 'git': None,
+            'dotnet': None, 'spirv_val': lib / 'libspirvval.so', 'python': Path(sys.executable),
+            # Built here as a shared library and run through the APK's runner (B3_DLMAIN): build_kraken.
+            'decoder': t / 'kraken/kraken_worker' if (t / 'kraken/kraken_worker').is_file() else None,
+            'opus': lib / 'libopus.so', 'sysroot': ts / 'sysroot', 'resource': ts / 'clang',
+            'runtime': ts / 'runtime', 'lld': bin_dir / 'ld.lld',
+        }
+        found['harness'] = lib / 'libshaderharness.so'
     else:
         # Linux / Steam Deck: SteamOS has no compiler or development headers, so a release brings them all.
         found = {
@@ -270,7 +289,8 @@ def tools(settings):
         found['sysroot'] = ts / 'sysroot' if (ts / 'sysroot').is_dir() else None
         found['sdl3'] = Path(given['sdl3']) if given.get('sdl3') else (ts / 'sdl3' if (ts / 'sdl3').is_dir() else None)
         found['bin'] = ts / 'bin' if (ts / 'bin/ffmpeg').is_file() else None  # ffmpeg/ffprobe for the cutscenes
-    found['harness'] = which('ShaderHarness', given.get('harness'), ts / f'shader-harness/ShaderHarness{EXE}')
+    if not ANDROID:
+        found['harness'] = which('ShaderHarness', given.get('harness'), ts / f'shader-harness/ShaderHarness{EXE}')
     found['ryujinx'] = Path(given['ryujinx']) if given.get('ryujinx') else t / 'ryujinx'
     found['vulkan'] = Path(given['vulkan']) if given.get('vulkan') else (
         ts / 'vulkan' if (ts / 'vulkan/include/vulkan/vulkan.h').is_file() else t / 'Vulkan-Headers')
@@ -354,9 +374,44 @@ def has_packages(python):
     return probe.returncode == 0
 
 
+def android_certificates():
+    """Python's ssl on Android finds no CA store: Android names its certificates by OpenSSL's old subject hash, which
+    current OpenSSL does not look up. The system's certificates, joined into one PEM file, for the one download (the
+    Kraken decoder's pinned source)."""
+    if os.environ.get('SSL_CERT_FILE'):
+        return
+    for d in (Path('/apex/com.android.conscrypt/cacerts'), Path('/system/etc/security/cacerts')):
+        if d.is_dir():
+            pem = WIN / 'tools/cacerts.pem'
+            pem.parent.mkdir(parents=True, exist_ok=True)
+            pem.write_text(''.join(p.read_text(encoding='ascii', errors='ignore') for p in sorted(d.iterdir())
+                                   if p.is_file()), encoding='ascii')
+            os.environ['SSL_CERT_FILE'] = str(pem)
+            return
+
+
+def android_bin():
+    """clang and lld pick their mode from the name they are run by, and the APK can only ship them as lib*.so: links
+    with the right names, in the app's own files, to the APK's executables (running through a link is allowed)."""
+    out = WIN / 'tools/bin'
+    out.mkdir(parents=True, exist_ok=True)
+    for name, target in (('clang', 'libclang.so'), ('clang++', 'libclang.so'), ('ld.lld', 'liblld.so')):
+        link = out / name
+        if not (link.is_symlink() and os.readlink(link) == str(ANDROID_LIB / target)):
+            if link.is_symlink() or link.exists():
+                link.unlink()
+            link.symlink_to(ANDROID_LIB / target)
+    return out
+
+
 def linux_flags(found):
     """Compile and link flags for the bundled clang on Linux: its own sysroot (SteamOS has no headers), lld, and the
-    C++ runtime linked in, so the result needs nothing but the system's glibc."""
+    C++ runtime linked in, so the result needs nothing but the system's glibc. On Android: the APK's clang, its
+    resource folder and the NDK's sysroot for API 29, linked by its lld with libc++ inside."""
+    if ANDROID:
+        return ([f'--target=aarch64-linux-android{ANDROID_API}', f'--sysroot={found["sysroot"]}',
+                 f'-resource-dir={found["resource"]}'],
+                [f'--ld-path={found["lld"]}', '-fuse-ld=lld', '-static-libstdc++'])
     if WINDOWS or not found.get('sysroot'):
         return [], []
     return [f'--sysroot={found["sysroot"]}'], ['-fuse-ld=lld', '-static-libstdc++', '-static-libgcc']
@@ -391,6 +446,9 @@ def build_kraken(found, env, log):
     cflags, ldflags = linux_flags(found)
     shim = [] if WINDOWS else ['-I', ROOT / 'tools/bayonetta3_shaders/ooz_posix']
     link = ['-static'] if WINDOWS else (ldflags or ['-static-libstdc++', '-static-libgcc'])
+    if ANDROID:  # SSE through sse2neon (the toolset's include/); a shared library run by the APK's runner (B3_DLMAIN)
+        shim += ['-I', TOOLSET / 'include', '-fPIC']
+        link = link + ['-shared', '-Dmain=b3_main']
     say('deps: compiling the Kraken decoder')
     run([found['cxx'], *cflags, '-O2', '-w', *shim, '-include', 'sys/stat.h', '-Dmain=ooz_cli_main',
          '-c', src / 'kraken.cpp', '-o', out / 'kraken.o'], log, env=env)
@@ -408,6 +466,15 @@ def step_deps(settings, log):
             names.update(git='git', dotnet='dotnet')
         for k in [k for k in names if not found[k]]:  # the pinned official archive (or --tool <name>=<path>)
             fetch_archive(names[k], log)
+    elif ANDROID:  # everything but the Kraken source comes with the APK: say what is missing rather than fetch it
+        names = {}
+        android_certificates()
+        need = [ANDROID_LIB / 'libclang.so', ANDROID_LIB / 'liblld.so', found['spirv_val'], found['harness'],
+                found['sysroot'], found['resource'], found['runtime'] / 'libbayonetta3.a', TOOLSET / 'include/sse2neon.h']
+        missing = [str(p) for p in need if not Path(p).exists()]
+        if missing:
+            raise SetupError('this APK lacks its setup tools (an APK made with android/build_ondevice_apk.py has them): '
+                             + ', '.join(missing))
     else:
         names = {'cxx': 'clang++', 'cmake': 'cmake', 'ninja': 'ninja'}
         if not prebuilt:
@@ -425,6 +492,8 @@ def step_deps(settings, log):
     # (a release's Linux Python). A release's wheels/ installs them offline. lz4 4.4.4 (the pin) has no Windows wheel
     # for current Pythons and needs MSVC to build; 4.4.5 is the same lz4.block the recompiler calls.
     venv = t / ('venv/Scripts/python.exe' if WINDOWS else 'venv/bin/python')
+    if ANDROID and not has_packages(found['python']):
+        raise SetupError("the APK's Python lacks the recompiler's packages (lz4, capstone)")
     if not has_packages(found['python']) and not venv.exists():
         say('deps: Python packages (venv)')
         run([sys.executable, '-m', 'venv', t / 'venv'], log)
@@ -435,7 +504,7 @@ def step_deps(settings, log):
         run([venv, '-m', 'pip', 'install', '--disable-pip-version-check', '--only-binary=:all:', *offline, *pins],
             log)
         found = tools(settings)
-    if not found['vulkan'].joinpath('include/vulkan/vulkan.h').exists():
+    if not ANDROID and not found['vulkan'].joinpath('include/vulkan/vulkan.h').exists():  # the APK's runtime is built
         say('deps: Vulkan headers')
         fetch_git(*VULKAN_HEADERS, found['vulkan'], log, env)
     if not found['decoder']:
@@ -500,7 +569,16 @@ def step_deps(settings, log):
 # ---- the steps that make game data -----------------------------------------------------------------------------------
 
 def programs(settings):
+    if ANDROID:  # the phone build has no picture book (program 1) yet
+        return ['b3']
     return ['b3'] + (['prog1'] if settings.get('program1') else [])
+
+
+def data_dir(program):
+    """Where the data step brings a program's exefs/ and romfs/. On Android that is the runtime's own extract/
+    folder in shared storage (it reads extract/romfs, and that storage cannot hold links), filled by moving the files
+    of a dump that sits on the same storage: a rename, no copy."""
+    return ANDROID_DATA / 'extract' if ANDROID else WIN / 'data' / program
 
 
 def folder_of(settings, program):
@@ -510,7 +588,7 @@ def folder_of(settings, program):
 def local_layout(settings, program):
     """(exefs, romfs) the later steps read: private/win/data/<program> once the data step brought them there, else the
     dump's own folders."""
-    here = WIN / 'data' / program
+    here = data_dir(program)
     if (here / 'complete.json').exists():
         return here / 'exefs', here / 'romfs'
     return dump_layout(folder_of(settings, program), program)
@@ -518,9 +596,9 @@ def local_layout(settings, program):
 
 def step_data(settings, log):
     """The dump's exefs/ and romfs/ into private/win/data/<program> (tools/b3_data.py, shared with Linux)."""
-    mode = settings.get('data_mode', 'link')
+    mode = 'move' if ANDROID else settings.get('data_mode', 'link')
     for program in programs(settings):
-        here = WIN / 'data' / program
+        here = data_dir(program)
         if (here / 'complete.json').exists():
             continue
         if mode == 'keep':
@@ -586,8 +664,69 @@ def step_shaders(settings, log):
         run(tool + ['publish', '--publish-dir', published] + common, log, env=env)
 
 
+ANDROID_MODULES = ('main', 'subsdk0', 'sdk')
+
+
+def build_android(found, log, jobs):
+    """The phone's build: the generated modules compiled here with the flags CMakeLists.txt gives them for Android,
+    then linked with the APK's runtime archive (CMake NX_ANDROID_RUNTIME_ARCHIVE) into libbayonetta3.so, which the
+    APK's loader (android/ondevice/loader.c) opens. No CMake or Ninja on a phone: the objects are kept, and a file is
+    compiled again only when its source is newer."""
+    import concurrent.futures
+    gen, out = WIN / 'cpu/b3/gen', WIN / 'build/b3'
+    cflags, ldflags = linux_flags(found)
+    common = [found['cxx'], *cflags, '-std=gnu++20', '-O2', '-DNDEBUG', '-DNX_BAYONETTA3=1', '-fPIC',
+              '-fvisibility=hidden', '-fno-semantic-interposition', '-march=armv8.2-a+crypto', '-w',
+              '-I', ROOT / 'runtime/include']
+    work = []
+    for module in ANDROID_MODULES:
+        (out / 'obj' / module).mkdir(parents=True, exist_ok=True)
+        for src in sorted((gen / module).glob('*.cpp')):
+            obj = out / 'obj' / module / (src.stem + '.o')
+            work.append((module, src, obj))
+    if not work:
+        raise SetupError(f'no generated code in {gen}: run the cpu step')
+    todo = [w for w in work if not (w[2].exists() and w[2].stat().st_mtime >= w[1].stat().st_mtime)]
+    total, done = len(todo), 0
+    say(f'build: compiling {total} of {len(work)} files')
+
+    def compile_one(item):
+        module, src, obj = item
+        part = obj.with_suffix('.o.part')
+        r = subprocess.run([str(c) for c in common + ['-I', gen / module, '-c', src, '-o', part]],
+                           capture_output=True, text=True)
+        if r.returncode:
+            return f'{src.name}: {r.stderr[-2000:]}'
+        os.replace(part, obj)
+        return None
+
+    with concurrent.futures.ThreadPoolExecutor(max(1, jobs or (os.cpu_count() or 4) // 2)) as pool:
+        for error in pool.map(compile_one, todo):
+            if error:
+                with open(log, 'a', encoding='utf-8') as f:
+                    f.write(error + '\n')
+                raise SetupError(f'compile failed: {error[:300]}')
+            done += 1
+            if done % 20 == 0 or done == total:
+                say(f'build: {done}/{total} files')
+    rsp = out / 'objects.rsp'
+    rsp.write_text('\n'.join(f'"{o}"' for _m, _s, o in work), encoding='utf-8')
+    lib = out / 'libbayonetta3.so'
+    say('build: linking libbayonetta3.so')
+    run([found['cxx'], *cflags, '-shared', '-o', lib, '-Wl,--whole-archive', found['runtime'] / 'libbayonetta3.a',
+         '-Wl,--no-whole-archive', f'@{rsp}', '-landroid', '-llog', '-laaudio', '-lmediandk', *ldflags,
+         '-u', 'ANativeActivity_onCreate', '-Wl,-z,max-page-size=16384', '-Wl,--strip-debug'], log)
+    ANDROID_GAME.mkdir(parents=True, exist_ok=True)
+    part = ANDROID_GAME / 'libbayonetta3.so.part'
+    shutil.copyfile(lib, part)
+    os.replace(part, ANDROID_GAME / 'libbayonetta3.so')
+
+
 def step_build(settings, log, jobs):
     found = tools(settings)
+    if ANDROID:
+        build_android(found, log, jobs)
+        return
     env = build_env(found)
     for program in programs(settings):
         build = WIN / 'build' / program
@@ -628,6 +767,17 @@ def data_roots():
 
 
 def step_link(settings, log):
+    if ANDROID:  # shared storage holds no links: the runtime's data root gets copies of the small outputs
+        for name, src in (('analysis', WIN / 'cpu/b3/analysis'), ('spirv', WIN / 'shaders/b3/spirv')):
+            dest = ANDROID_DATA / name
+            staging = ANDROID_DATA / (name + '.partial')
+            shutil.rmtree(staging, ignore_errors=True)
+            shutil.copytree(src, staging)
+            shutil.rmtree(dest, ignore_errors=True)
+            os.replace(staging, dest)
+        (ANDROID_DATA / 'user').mkdir(parents=True, exist_ok=True)
+        say(f'link: data in {ANDROID_DATA}; your saves are in {ANDROID_DATA / "user"}')
+        return
     b3_root, prog1_root = data_roots()
     for program in programs(settings):
         root = b3_root if program == 'b3' else prog1_root

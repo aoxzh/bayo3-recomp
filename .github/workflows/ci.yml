@@ -146,9 +146,72 @@ jobs:
           name: windows-release
           path: dist/*
 
+  # The Android APK: the launcher and the setup tools (clang, lld, Python, the shader translator) built to run on the
+  # phone, which turns the player's own dump into the game itself (tools/build_android_toolset.py,
+  # android/build_ondevice_apk.py). No game code goes into it. clang and lld for Android take hours to build, so they
+  # are cached on their own; the rest is rebuilt with the runtime it carries.
+  android-package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the APK is named by git describe
+      - name: NDK r29
+        run: |
+          echo "y" | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;29.0.14206865" > /dev/null
+          echo "NDK=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+      - name: clang and lld cache key
+        id: key
+        run: |
+          k=$(grep -E '^(LLVM_SRC|LLVM_MAJOR|API) ' tools/build_android_toolset.py | sha256sum | cut -c1-16)
+          echo "key=android-llvm-$k-ndk29" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: llvm
+        with:
+          path: |
+            android-toolset/lib/libclang.so
+            android-toolset/lib/liblld.so
+            android-toolset/files/toolset/clang
+            android-toolset/files/licenses/LICENSE.llvm
+          key: ${{ steps.key.outputs.key }}
+      - name: clang and lld for Android (hours, cached)
+        if: steps.llvm.outputs.cache-hit != 'true'
+        run: |
+          df -h .
+          python3 tools/build_android_toolset.py --ndk "$NDK" --out android-toolset --work "$RUNNER_TEMP/aw" --only llvm
+          rm -rf "$RUNNER_TEMP/aw"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: The rest of the toolset
+        run: >
+          python3 tools/build_android_toolset.py --ndk "$NDK" --out android-toolset --work "$RUNNER_TEMP/aw"
+          --only headers,sysroot,runtime,opus,spirv,python,small,harness
+      - name: APK
+        env:
+          B3_APK_KEYSTORE: ${{ secrets.B3_APK_KEYSTORE }}
+          B3_KS_PASS: ${{ secrets.B3_APK_KS_PASS }}
+        run: |
+          sign=()
+          if [ -n "$B3_APK_KEYSTORE" ]; then
+            echo "$B3_APK_KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+            sign=(--keystore "$RUNNER_TEMP/release.jks" --ks-pass env:B3_KS_PASS)
+          fi
+          python3 android/build_ondevice_apk.py --toolset android-toolset --sdk "$ANDROID_HOME" --out dist "${sign[@]}"
+          rm -f "$RUNNER_TEMP/release.jks"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: dist/*.apk
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux-tests, linux-package, windows-package]
+    needs: [linux-tests, linux-package, windows-package, android-package]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

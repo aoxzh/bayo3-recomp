@@ -13,6 +13,9 @@
          is the appops command MANAGE_EXTERNAL_STORAGE allow for the package. The app's external files folder needs none.
     -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- The on-device setup (Setup.java) fetches one file: the Kraken decoder's source, pinned by its sha256, which
+         its license keeps out of the APK. The game itself uses no network. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Shared NVN/Vulkan backend requests Vulkan 1.3; Android API 29 alone is insufficient. -->
     <uses-feature android:name="android.hardware.vulkan.version" android:version="0x403000" android:required="true" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
@@ -49,6 +52,12 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density">
             <meta-data android:name="android.app.lib_name" android:value="bayonetta3" />
         </activity>
+        <!-- The on-device setup (Setup.java), in an APK that carries the setup tools instead of the game. -->
+        <activity
+            android:name=".SetupActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density" />
         <!-- The bug report zip, handed to the app picked in the share sheet (SupportProvider.java). -->
         <provider
             android:name=".SupportProvider"

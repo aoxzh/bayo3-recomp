@@ -245,6 +245,19 @@ This runs the normal visible, audible executable directly and does not load `pri
 
 ## Android arm64 — build, install and play
 
+### From a release (no PC needed)
+
+The release's `android-arm64.apk` carries the launcher and the setup tools (clang and lld built to run on Android, Python, the shader translator, spirv-val), not the game. The phone turns your own dump into the game itself:
+
+1. Install the APK and open it. Allow "All files access" when it asks (the game folder lives in Internal storage).
+2. Copy the `exefs/` and `romfs/` folders of your Bayonetta 3 1.2.0 dump into `Internal storage/Bayonetta 3/dump` (from a PC over USB, or with a file manager).
+3. Tap **SET UP**, then **Start setup**. Keep the phone charging and the screen open: the setup moves the dump into the game folder (a rename, so no second copy), translates the game's code and shaders, and compiles them on the phone. That takes about 30 to 60 minutes on a recent phone and needs about 6 GB free. If it stops, **Start setup** carries on from the last finished step.
+4. When it says the game is ready, go back and press **START**.
+
+The setup downloads one file: the source of the Kraken decoder (powzix/ooz at a pinned commit), whose license keeps it out of the APK; the phone compiles it like the rest. The game itself uses no network. The built game stays inside the app (`files/game/libbayonetta3.so`), and saves go to `Internal storage/Bayonetta 3/user`. To install a newer release over this one, both must be signed with the same key: the releases are, but an APK you built yourself is not, so back up `user/` before switching between them.
+
+### The developer route
+
 On Linux, these commands build and package the APK; the Opus helper needs a Linux host because it uses the NDK's `linux-x86_64` strip tool. Install CMake, Ninja, Java/keytool, zip, adb, Android SDK build-tools and an Android platform API of 35 or newer, plus an NDK (the project used r28b) and recent Vulkan headers. The generated application targets Android API 29+, arm64-v8a. If more than one adb device is connected, select the intended phone with `ANDROID_SERIAL`.
 
 ```bash

@@ -520,6 +520,17 @@ public final class LauncherActivity extends Activity {
 
     private void showData() {
         StringBuilder b = new StringBuilder();
+        if (needsSetup()) {  // an APK that builds the game here (Setup.java)
+            dataValue.setText("Not set up yet · Set up turns your dump into the game on this phone");
+            dataValue.setTextColor(Ui.GOLD);
+            dot(dataDot, Ui.GOLD);
+            start.setText("SET UP");
+            start.setAlpha(1f);
+            cacheValue.setText("None yet");
+            dot(cacheDot, Ui.FAINT);
+            return;
+        }
+        start.setText("▶   START");
         if (!data.folderExists) {
             b.append(data.rootLabel()).append(" not found.\nCreate it and copy the game data into it: analysis/, "
                     + "extract/romfs/ and spirv/.");
@@ -681,8 +692,17 @@ public final class LauncherActivity extends Activity {
         }
     }
 
+    private boolean needsSetup() {
+        return Setup.onDevice(this) && (!Setup.gameLibrary(this).isFile() || !data.ready()
+                || (Setup.current() != null && Setup.current().running));
+    }
+
     private void startGame() {
         if (cfg == null) return;
+        if (needsSetup()) {
+            startActivity(new Intent(this, SetupActivity.class));
+            return;
+        }
         if (!data.ready()) {
             Toast.makeText(this, "The game data is incomplete: the list on the left says what is missing.",
                     Toast.LENGTH_LONG).show();
@@ -847,7 +867,7 @@ public final class LauncherActivity extends Activity {
                     Toast.makeText(this, "Could not make the report: " + err, Toast.LENGTH_LONG).show();
                     return;
                 }
-                Uri uri = SupportProvider.uri(zip);
+                Uri uri = SupportProvider.uri(this, zip);
                 Intent send = new Intent(Intent.ACTION_SEND);
                 send.setType("application/zip");
                 send.putExtra(Intent.EXTRA_STREAM, uri);

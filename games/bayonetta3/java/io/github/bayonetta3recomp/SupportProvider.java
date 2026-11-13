@@ -14,11 +14,14 @@ import java.io.FileNotFoundException;
 // Hands the support zip (<cache>/support/<name>.zip, LauncherActivity.shareReport) to the app picked in the share sheet,
 // read-only and only through the URI permission the share intent grants. Nothing else is served.
 public final class SupportProvider extends ContentProvider {
-    static final String AUTHORITY = "io.github.bayonetta3recomp.support";
+    // <package>.support (the manifest's ${applicationId}-style name, so a renamed test install has its own).
+    static String authority(android.content.Context c) { return c.getPackageName() + ".support"; }
 
     static File dir(android.content.Context c) { return new File(c.getCacheDir(), "support"); }
 
-    static Uri uri(File f) { return Uri.parse("content://" + AUTHORITY + "/" + Uri.encode(f.getName())); }
+    static Uri uri(android.content.Context c, File f) {
+        return Uri.parse("content://" + authority(c) + "/" + Uri.encode(f.getName()));
+    }
 
     private File file(Uri uri) throws FileNotFoundException {
         String name = uri.getLastPathSegment();

@@ -12,7 +12,7 @@ import bayonetta3_shaders
 
 def run(worker, data):
     try:
-        return subprocess.run([str(worker)], input=data, capture_output=True, timeout=15)
+        return subprocess.run(bayonetta3_shaders.program_cmd(worker), input=data, capture_output=True, timeout=15)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeError(f"worker could not complete: {exc}") from exc
 

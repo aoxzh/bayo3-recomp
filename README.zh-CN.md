@@ -129,7 +129,7 @@ flowchart LR
 
 ## 开始
 
-**最快：下载发布版。** 在[最新发布](https://github.com/aoxzh/bayo3-recomp/releases/latest)里下载对应平台的包：`windows-x64.zip`，Linux 和 Steam Deck 用 `linux-x86_64.tar.gz`。包里带着安装过程需要的工具（Linux 版连编译器都带了，系统里什么都不用装，适合 SteamOS），不含任何游戏内容。解压后运行 `Bayonetta3Recomp.cmd` / `Bayonetta3Recomp.sh`，选 **Set up from my dump**，选你的 1.2.0 dump 文件夹，之后由你自己的机器生成并编译游戏，大约半小时到两小时。在 Steam Deck 上，把 `Bayonetta3Recomp.sh` 作为非 Steam 游戏加入 Steam，启动选项填 `--play`，就能在游戏模式里直接启动。Android 暂时没有下载包，因为 APK 里会包含用你的 dump 编出来的游戏；请按[游玩指南](docs/PLAYING.md)自行构建。
+**最快：下载发布版。** 在[最新发布](https://github.com/aoxzh/bayo3-recomp/releases/latest)里下载对应平台的包：`windows-x64.zip`，Linux 和 Steam Deck 用 `linux-x86_64.tar.gz`。包里带着安装过程需要的工具（Linux 版连编译器都带了，系统里什么都不用装，适合 SteamOS），不含任何游戏内容。解压后运行 `Bayonetta3Recomp.cmd` / `Bayonetta3Recomp.sh`，选 **Set up from my dump**，选你的 1.2.0 dump 文件夹，之后由你自己的机器生成并编译游戏，大约半小时到两小时。在 Steam Deck 上，把 `Bayonetta3Recomp.sh` 作为非 Steam 游戏加入 Steam，启动选项填 `--play`，就能在游戏模式里直接启动。Android 上安装 `android-arm64.apk`，把 dump 的 `exefs/` 和 `romfs/` 放进 `内部存储/Bayonetta 3/dump`，点 **SET UP**：手机自己编译游戏（大约 30 到 60 分钟），不需要电脑。APK 里只有工具，不含游戏（[游玩指南](docs/PLAYING.md)）。
 
 **从源码：**
 
