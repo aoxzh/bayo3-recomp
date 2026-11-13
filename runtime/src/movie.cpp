@@ -146,6 +146,7 @@ struct Session {
     bool current_set = false;
     bool guest_timing = false, rewind_requested = false;
     int64_t target_pts_us = 0;
+    uint64_t not_due = 0;            // luma writes under guest timing with no frame due yet (diagnostics)
     bool t0_set = false;
     std::chrono::steady_clock::time_point t0;
     // How many plane writes this movie actually served. The acceptance evidence for a cutscene is exactly this
@@ -613,6 +614,8 @@ void read_frames_decoder(Session* s, Next next, Rewind rewind, Stop stop, std::m
                 std::lock_guard lk(s->m);
                 if (s->stopping) return;
                 s->eof = true;
+                if (!s->loop) log("movie: %s: decoder ended after %llu frames (next index %llu)", s->guest.c_str(),
+                    (unsigned long long)frames_this_pass, (unsigned long long)s->next_index);
                 again = s->loop && frames_this_pass != 0;
             }
             if (!again) return;
@@ -781,9 +784,8 @@ MoviePlane movie_plane_fallback(uint32_t format, uint32_t tex_w, uint32_t tex_h,
 
 void movie_on_frame(uint64_t file_handle, int64_t pts_us, uint64_t luma, uint64_t chroma) {
     g_pending_frame = {};
-#if !defined(__ANDROID__)
-    // NX_MOVIE_WALLCLOCK=1: ignore the verified fetch and pace every film by wall clock and open order, as Android
-    // does. A desktop run can then exercise the Android picture-selection path (issue #3 was Android-only).
+    // NX_MOVIE_WALLCLOCK=1: ignore the verified fetch and pace every film by wall clock and open order (the fallback
+    // when the frame-fetch observer is off), so a run can exercise that picture-selection path (issue #3).
     static const bool wall_clock = std::getenv("NX_MOVIE_WALLCLOCK") && std::getenv("NX_MOVIE_WALLCLOCK")[0] == '1';
     if (wall_clock) return;
     if (!file_handle || pts_us < 0 || !luma || !chroma || luma == chroma) return;
@@ -791,8 +793,7 @@ void movie_on_frame(uint64_t file_handle, int64_t pts_us, uint64_t luma, uint64_
     {
         std::lock_guard lk(g_movie);
         s = find_session(file_handle);
-        // Looping title/background playback and Android retain their existing
-        // pacing until their decoder paths expose a corresponding source timeline.
+        // Looping title/background playback keeps its own pacing.
         // A fetch names the film being played, and with several films open that name is the only exact one: the
         // film left behind at a handover keeps its own pacing and plays out its length instead of freezing.
         if (!s || s->loop) return;
@@ -804,15 +805,16 @@ void movie_on_frame(uint64_t file_handle, int64_t pts_us, uint64_t luma, uint64_
     s->target_pts_us = pts_us;
     g_pending_frame = {file_handle, pts_us, luma, chroma, false};
     s->space.notify_one();
-#else
-    (void)file_handle; (void)pts_us; (void)luma; (void)chroma;
-#endif
 }
 
 // Does the verified fetch in flight name this film and this very plane buffer? Only a verified fetch attributes a
 // write to one film exactly; without one (wall-clock pacing) every open film may answer.
 bool fetch_owns(const Session& s, bool luma, const uint8_t* data) {
-    if (!s.guest_timing) return true;
+    // A film the game has not fetched from yet answers only writes that no fetch claims. A fetch in flight names its
+    // film, so its writes are never another film's: a pre-opened film that took one (the playing film's other plane
+    // buffer) started its wall clock there, decoded to its end before the game asked for its first frame, and then
+    // had no frame due at the game's times (ev0022 on Android stayed on its first frame for its whole length).
+    if (!s.guest_timing) return g_pending_frame.file_handle == 0;
     const uint64_t h = g_pending_frame.file_handle;
     if (!h || h != s.file_handle) return false;  // no fetch, or a fetch for another film
     if (reinterpret_cast<uintptr_t>(data) != (luma ? g_pending_frame.luma : g_pending_frame.chroma)) return false;
@@ -899,6 +901,13 @@ bool serve_plane(const std::shared_ptr<Session>& sp, bool luma, uint32_t tex_w, 
         const bool due = !s.ring.empty() && (s.guest_timing
             ? s.ring.front().pts_us != kNoPts && s.ring.front().pts_us <= g_pending_frame.pts_us
             : s.ring.front().index <= target);
+        if (s.guest_timing && !due && s.current_set) {
+            const uint64_t n = ++s.not_due;
+            if (n == 1 || n % 300 == 0)
+                log("movie: %s: %llu writes with no frame due at %lld us: %zu queued (first at %lld us), eof %d",
+                    s.guest.c_str(), (unsigned long long)n, (long long)g_pending_frame.pts_us, s.ring.size(),
+                    s.ring.empty() ? -1LL : (long long)s.ring.front().pts_us, int(s.eof));
+        }
         if (due && (!s.current_set || s.current_index != s.ring.front().index)) {
             // The selected frame leaves the pending queue and becomes the Y/UV
             // latch without copying its payload. Producer pruning cannot touch
@@ -950,7 +959,7 @@ bool movie_fill(uint32_t format, uint32_t tex_w, uint32_t tex_h, uint32_t region
     // 1) A film already producing exactly this plane. No decoder is restarted to answer a write that one frame of
     //    another film can cover: a handover must not black out the picture the game still holds.
     //
-    //    Without a verified fetch (Android, NX_MOVIE_WALLCLOCK) a film's clock starts at the first plane it serves, so
+    //    Without a verified fetch (NX_MOVIE_VTABLE=0, NX_MOVIE_WALLCLOCK) a film's clock starts at the first plane it serves, so
     //    a pre-opened film must not answer just because the playing one has no decoded frame yet (its first frame is
     //    still in the decoder): that would start the next cutscene's clock early, under the current one's sound —
     //    issue #3 again. Such a write stays unserved for that moment instead.

@@ -22,7 +22,10 @@ static std::vector<uint8_t> frame(uint8_t value, unsigned w = 4, unsigned h = 4)
 
 // Several movies can be open at once, so the tests drive the container the runtime keeps for them directly:
 // these tests never open a real file, they install a Session and then exercise the plane-fill path against it.
+// Both also drop this thread's fetch in flight: a fetch claims every write until the next one, so a fetch left over
+// from an earlier test would claim the next test's wall-clock writes.
 static void install_session(std::unique_ptr<nx::Session> s) {
+    nx::g_pending_frame = {};
     std::lock_guard lk(nx::g_movie);
     nx::g_sessions.clear();
     nx::g_sessions.push_back(std::shared_ptr<nx::Session>(std::move(s)));
@@ -32,6 +35,7 @@ static nx::Session* only_session() {
     return nx::g_sessions.empty() ? nullptr : nx::g_sessions.front().get();
 }
 static void clear_sessions() {
+    nx::g_pending_frame = {};
     std::lock_guard lk(nx::g_movie);
     nx::g_sessions.clear();
 }
@@ -222,13 +226,6 @@ static void test_latch_ownership_and_backpressure() {
     clear_sessions();
 }
 
-#if !defined(__ANDROID__)
-static void assert_no_children() {
-    int status;
-    errno = 0;
-    assert(waitpid(-1, &status, WNOHANG) == -1 && errno == ECHILD);
-}
-
 static void test_guest_pts_and_identity() {
     auto s = std::make_unique<nx::Session>();
     s->out_w = s->out_h = 4;
@@ -332,6 +329,13 @@ static void test_guest_producer_pause() {
     eventually([&] { return done.load(); });
     producer.join();
     assert(s.ring.size() == 2 && s.ring.front().pts_us == 2700000);
+}
+
+#if !defined(__ANDROID__)
+static void assert_no_children() {
+    int status;
+    errno = 0;
+    assert(waitpid(-1, &status, WNOHANG) == -1 && errno == ECHILD);
 }
 
 static void test_guest_rewind_and_resize() {
@@ -694,6 +698,43 @@ static void test_preopened_film_waits_its_turn() {
     clear_sessions();
 }
 
+// A fetch for the playing film claims its writes, including the plane buffer it does not name: a pre-opened film the
+// game has not fetched from yet must not answer one and start its clock (ev0022 on Android froze on its first frame).
+static void test_preopened_film_ignores_claimed_writes() {
+    clear_sessions();
+    auto playing = std::make_shared<nx::Session>();
+    playing->file_handle = 811;
+    playing->out_w = playing->out_h = 4;
+    playing->fps = 30;
+    playing->ring.push_back({0, frame(10), 0});
+    playing->ring.push_back({1, frame(11), 33333});
+    auto next = std::make_shared<nx::Session>();
+    next->file_handle = 812;
+    next->out_w = next->out_h = 4;
+    next->fps = 30;
+    next->ring.push_back({0, frame(20), 0});
+    next->ring.push_back({1, frame(21), 33333});
+    {
+        std::lock_guard lk(nx::g_movie);
+        nx::g_sessions.push_back(playing);
+        nx::g_sessions.push_back(next);
+    }
+    uint8_t y[16] = {}, uv[8] = {}, y2[16] = {};
+    nx::movie_on_frame(811, 0, uintptr_t(y), uintptr_t(uv));
+    assert(nx::movie_fill(1, 4, 4, 4, 4, y, 4));
+    for (auto v : y) assert(v == 10);
+    assert(!nx::movie_fill(1, 4, 4, 4, 4, y2, 4));  // the playing film's other buffer: claimed, not the next film's
+    {
+        std::lock_guard lk(next->m);
+        assert(!next->t0_set && next->fills_luma == 0);
+    }
+    nx::movie_on_frame(812, 0, uintptr_t(y2), uintptr_t(uv));  // the game starts the next film: from its first frame
+    assert(nx::movie_fill(1, 4, 4, 4, 4, y2, 4));
+    for (auto v : y2) assert(v == 20);
+    nx::movie_on_frame(0, -1, 0, 0);
+    clear_sessions();
+}
+
 int main(int argc, char** argv) {
 #if !defined(__ANDROID__)
     if (std::filesystem::path(argv[0]).filename() == "ffmpeg") return fake_ffmpeg(argc, argv);
@@ -705,11 +746,12 @@ int main(int argc, char** argv) {
     test_luma_chroma_latch();
     test_latch_ownership_and_backpressure();
     test_preopened_film_waits_its_turn();
+    test_preopened_film_ignores_claimed_writes();
+    test_guest_pts_and_identity();  // Android follows the game's fetch too
+    test_guest_producer_pause();
 #if defined(__ANDROID__)
     test_android_stream();
 #else
-    test_guest_pts_and_identity();
-    test_guest_producer_pause();
     test_guest_rewind_and_resize();
     test_stalled_upload_catches_up();
     test_resize_resets_origin();

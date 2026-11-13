@@ -76,17 +76,13 @@ endif()
 # (docs/LINUX-VERIFICATION-2026-10-22.md §12), so this needs no probe build; NX_MOVIE_VTABLE=log installs a logging
 # table that tail-calls the game's own implementation, which is how the seam gets verified before FFmpeg is wired in.
 option(NX_MOVIE_VTABLE "Build the movie:: vtable patch (NX_MOVIE_VTABLE=log to trace the seam)" OFF)
-# The frame-fetch observer, ON by default on desktop: it compiles the same file, and at runtime (NX_MOVIE_VTABLE unset)
+# The frame-fetch observer, ON by default: it compiles the same file, and at runtime (NX_MOVIE_VTABLE unset)
 # patches only movie::Decoder, at the first movie open, to observe the game's own frame fetch. That fetch names the film,
 # its timestamp and its two plane buffers, so movie.cpp serves each plane from the right film at the game's own time
 # instead of guessing by open order and wall clock (issue #3: the game pre-opens the next film while one plays).
 # NX_MOVIE_VTABLE=0 turns it off at runtime; =log/1 is the full study mode. A separate option
-# name, so build folders that cached NX_MOVIE_VTABLE=OFF pick it up on a Rebuild. Android: OFF until checked on a device.
-if(ANDROID)
-    option(NX_MOVIE_FRAME_SOURCE "Observe the game's movie frame fetch (movie::Decoder slot 15)" OFF)
-else()
-    option(NX_MOVIE_FRAME_SOURCE "Observe the game's movie frame fetch (movie::Decoder slot 15)" ON)
-endif()
+# name, so build folders that cached NX_MOVIE_VTABLE=OFF pick it up on a Rebuild.
+option(NX_MOVIE_FRAME_SOURCE "Observe the game's movie frame fetch (movie::Decoder slot 15)" ON)
 if(NX_MOVIE_FRAME_SOURCE)
     set(NX_MOVIE_VTABLE ON)
 endif()
