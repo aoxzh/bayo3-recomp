@@ -163,10 +163,11 @@ switching windows releases it). Every input can be rebound in `private/b3.conf` 
 file lists the inputs, the key names and the defaults. F11 or Alt+Enter toggles fullscreen.
 
 **F1** (or + and − together on a controller) opens the settings panel over the game: window mode, resolution, frame
-rate, v-sync, anisotropic filtering, FSR, model detail, controller layout, the mouse camera and sound. The arrows or
+rate, v-sync, anisotropic filtering, FSR, model detail, film grain, controller layout, the mouse camera and sound. The arrows or
 the d-pad choose and change, Esc or B closes; the game is paused while it is open. Changes are saved to
-`private/b3.conf`; window mode, model detail and the mouse apply at once, the others say "(next start)". Model detail
-`Highest` (`model_lod=highest`) keeps every model with more than one level of detail at its finest at any distance.
+`private/b3.conf`; window mode, model detail, film grain and the mouse apply at once, the others say "(next start)". Model detail
+`Highest` (`model_lod=highest`) keeps every model with more than one level of detail at its finest at any distance. Film grain `Off` (`film_grain=off`) drops the grain the
+game lays over the picture, from the next scene on (the same field the community "No Film Grain" mod removes).
 
 In the picture book's prologue, + offers to close the book; that returns to Bayonetta 3, where Continue goes back to
 the hub. For Discord Rich Presence, create an application at discord.com/developers (its name is what your friends

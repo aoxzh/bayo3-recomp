@@ -24,6 +24,7 @@ display_hz=              # the rate the game paces itself by: 60, 90, 120, 144; 
 fifo=0                   # 1: v-sync (wait for the display refresh: no tearing, a little more latency)
 aniso=                   # anisotropic filtering 2, 4, 8 or 16; empty = the game's own
 model_lod=               # highest: models keep their finest detail at any distance (costs GPU time); empty = the game's
+film_grain=              # off: no film grain (from the next scene; the vignette stays); empty = the game's own
 
 # ---- Controller ------------------------------------------------------------------------------
 pad_swap=0               # 0: Nintendo layout; 1: swap A/B and X/Y for Xbox labels

@@ -26,6 +26,7 @@
 #endif
 
 #include "nvn.h"
+#include "nx/b3_film_grain.h"
 #include "nvn_draw_frame_stats.h"
 #include "nvn_submit_diag.h"
 #include "nvn_ultrawide.h"
@@ -988,6 +989,7 @@ void QueuePresentTexture(CPU& c) {
     uint64_t n = ++g_presents;
     uw_scan(n);
     uw_cameras(n);
+    nx::b3::film_grain_frame();
     tl("present<", n);
     if (g_tl_from != UINT64_MAX && n == g_tl_from + 8) {
         uint64_t cnt = std::min<uint64_t>(g_tl_n.load(), 2048), t0 = g_tl[0].ns;

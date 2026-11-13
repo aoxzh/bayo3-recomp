@@ -24,4 +24,19 @@ int model_lod() {
 
 void set_model_lod(int v) { g_model_lod.store(v ? 1 : 0, std::memory_order_relaxed); }
 
+namespace {
+std::atomic<int> g_grain_off{-1};
+}
+
+int film_grain_off() {
+    int v = g_grain_off.load(std::memory_order_relaxed);
+    if (v < 0) {
+        v = setting("film_grain") == "off" ? 1 : 0;
+        g_grain_off.store(v, std::memory_order_relaxed);
+    }
+    return v;
+}
+
+void set_film_grain_off(int v) { g_grain_off.store(v ? 1 : 0, std::memory_order_relaxed); }
+
 }  // namespace nx::plat

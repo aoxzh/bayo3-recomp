@@ -75,3 +75,9 @@ of `recomp/b3_hooks.py` follow `h_model_lod` (issue 86) in
 at the same commit: after the mesh level picker at main+0xBD563C, a mesh with more than one level keeps level 0.
 Here it is a post-call wrapper of the generated function, switched by `model_lod=highest` and live from the settings
 panel. It is marked `SPDX-License-Identifier: GPL-3.0-or-later`.
+
+`runtime/src/b3_film_grain.cpp` and `runtime/include/nx/b3_film_grain.h` follow the film grain finding of
+`docs/STATUS.md` (issue 86) at Witch Time commit 58499b8cf87c4be83ff92fc8897bb8f7f5b3bb97: the grain is the scene
+parameter `m_GrainIntensity` (offset 0x1fc of the tonemap filter's parameters). Witch Time edits its shader
+translation; here the field's descriptors are renamed so the scene loader never sets it, switched by
+`film_grain=off` and live from the settings panel. Both files are marked `SPDX-License-Identifier: GPL-3.0-or-later`.

@@ -277,6 +277,7 @@ void panel_init() {  // under g_panel_lock
          {{"", "Game default"}, {"2", "2x"}, {"4", "4x"}, {"8", "8x"}, {"16", "16x"}}, false},
         {"FSR 1 upscale", "fsr", {{"0", "Off"}, {"1", "On"}}, false},
         {"Model detail", "model_lod", {{"", "Game default"}, {"highest", "Highest"}}, true},
+        {"Film grain", "film_grain", {{"", "On"}, {"off", "Off"}}, true},
         {"Controller layout", "pad_swap", {{"0", "Nintendo"}, {"1", "Xbox"}}, false},
         {"Mouse camera", "mouse_camera", {{"1", "On"}, {"0", "Off"}}, true},
         {"Mouse speed", "mouse_sens",
@@ -359,6 +360,7 @@ void panel_apply(PanelItem& it) {  // under g_panel_lock
     if (std::strcmp(it.key, "mouse_sens") == 0) g_mouse_sens = value[0] ? float(std::atof(value)) : 1.0f;
     if (std::strcmp(it.key, "mouse_invert_y") == 0) g_mouse_invert = it.index == 1;
     if (std::strcmp(it.key, "model_lod") == 0) set_model_lod(it.index == 1);
+    if (std::strcmp(it.key, "film_grain") == 0) set_film_grain_off(it.index == 1);
     if (save_setting(it.key, value))
         g_panel_note = "Saved.";
     else

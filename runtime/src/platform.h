@@ -138,6 +138,8 @@ bool headless();
 // Live settings (settings_live.cpp): read once from the player's settings, then changed by the settings panel.
 int model_lod();  // 1: model_lod = highest (b3_model_lod.cpp), 0: the game's own
 void set_model_lod(int v);
+int film_grain_off();  // 1: film_grain = off (b3_film_grain.cpp), 0: the game's own
+void set_film_grain_off(int v);
 // NX_HANDHELD: the console mode the game is told (1280x720 handheld; else docked, 1600x900 for this game). Empty, 0,
 // false, off or no mean docked: only the variable's presence used to count, so NX_HANDHELD=0 ran handheld.
 // Inline, so the service sources that tests compile on their own (am_lifecycle_test includes svc_am.cpp) need nothing

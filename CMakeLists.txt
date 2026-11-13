@@ -467,7 +467,7 @@ set(NX_RUNTIME_SOURCES
 if(NX_GAME STREQUAL "bayonetta3" OR NX_GAME STREQUAL "bayonetta3prog1")
     list(APPEND NX_RUNTIME_SOURCES runtime/src/hle_fiber.cpp runtime/src/svc_opus.cpp runtime/src/movie.cpp
          runtime/src/hle_movie.cpp runtime/src/b3_scene_clock.cpp runtime/src/b3_fps_counters.cpp
-         runtime/src/b3_model_lod.cpp
+         runtime/src/b3_model_lod.cpp runtime/src/b3_film_grain.cpp
          runtime/src/b3_guest_fastpaths.cpp)
     # The movie:: vtable seam (docs/LINUX-VERIFICATION-2026-10-22.md §8): by default only the frame-fetch observer
     # (see the NX_MOVIE_VTABLE option above).
