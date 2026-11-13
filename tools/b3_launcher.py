@@ -31,6 +31,7 @@ from tkinter import filedialog, messagebox, ttk
 import queue
 import re
 import threading
+import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import b3_launcher_config as cfg  # noqa: E402
@@ -692,6 +693,14 @@ class Launcher(tk.Tk):
         self.reset_button = Button(self.canvas, 'Reset to defaults', self.reset, look='ghost')
         self.save_item = self.canvas.create_window(0, 0, window=self.save_button, anchor='e', state='hidden')
         self.reset_item = self.canvas.create_window(0, 0, window=self.reset_button, anchor='e', state='hidden')
+        # The Mods tab's own actions, where Save and Reset are on the other tabs.
+        self.mod_actions = []
+        for text, command, look in (('Add mod (.zip)', self._add_mod_zip, 'outline'),
+                                    ('Add folder', self._add_mod_folder, 'ghost'),
+                                    ('Open mods folder', self._open_mods, 'ghost')):
+            button = Button(self.canvas, text, command, look=look)
+            self.mod_actions.append((button, self.canvas.create_window(0, 0, window=button, anchor='e',
+                                                                       state='hidden')))
 
     def _widget(self, setting):
         if setting.kind == 'bool':
@@ -721,9 +730,10 @@ class Launcher(tk.Tk):
         c = self.canvas
         w, h = max(c.winfo_width(), 2), max(c.winfo_height(), 2)
         c.delete('chrome')
-        for item in list(self.windows.values()) + [m[4] for m in self.mods]:
+        for item in list(self.windows.values()) + [m[4] for m in self.mods] + [m[i] for m in self.mods
+                                                                                for i in (6, 8)]:
             c.itemconfigure(item, state='hidden')
-        for item in (self.save_item, self.reset_item, self.log_item):
+        for item in (self.save_item, self.reset_item, self.log_item) + tuple(i for _b, i in self.mod_actions):
             c.itemconfigure(item, state='hidden')
         if self.view == 'home':
             self._layout_home(w, h)
@@ -857,11 +867,14 @@ class Launcher(tk.Tk):
                                     width=max(px(200), x2 - x1 - px(64)))
         self.status_item = self._text(x1 + px(32), y2 - px(28), self.status_text, (UI, 9),
                                       RED if self.status_bad else FAINT)
-        c.coords(self.save_item, x2 - px(32), y2 - px(28))
-        c.itemconfigure(self.save_item, state='normal')
+        actions = (self.mod_actions if self.group == 'mods'
+                   else [(self.save_button, self.save_item), (self.reset_button, self.reset_item)])
         c.update_idletasks()
-        c.coords(self.reset_item, x2 - px(44) - self.save_button.winfo_reqwidth(), y2 - px(28))
-        c.itemconfigure(self.reset_item, state='normal')
+        right = x2 - px(32)
+        for button, item in actions:
+            c.coords(item, right, y2 - px(28))
+            c.itemconfigure(item, state='normal')
+            right -= button.winfo_reqwidth() + px(12)
 
     # -- the Mods tab -----------------------------------------------------------------------------------------------
     def _read_mods(self):
@@ -869,11 +882,14 @@ class Launcher(tk.Tk):
         found = cfg.mods_of(self.root)
         if [(m[0], m[1]) for m in self.mods] == [(n, f) for n, f, _ in found]:
             return
-        for _n, _f, _var, widget, item in self.mods:
-            self.canvas.delete(item)
+        for mod in self.mods:
+            widget = mod[3]
+            for item in (mod[4], mod[6], mod[8]):
+                self.canvas.delete(item)
             if widget in self.focusable:
                 self.focusable.remove(widget)
-            widget.destroy()
+            for w in (widget, mod[5], mod[7]):
+                w.destroy()
         self.mods = []
         for name, folder, on in found:
             var = tk.BooleanVar(value=on)
@@ -881,7 +897,14 @@ class Launcher(tk.Tk):
             item = self.canvas.create_window(0, 0, window=widget, anchor='e', state='hidden')
             self.focusable.append(widget)
             widget.bind('<FocusIn>', lambda _e, w=widget: self._focus_moved(w), add='+')
-            self.mods.append([name, folder, var, widget, item])
+            # Earlier / later in the apply order (the last one wins where two mods replace the same file).
+            up = Button(self.canvas, '▲', lambda n=name: self._move_mod(n, -1))
+            down = Button(self.canvas, '▼', lambda n=name: self._move_mod(n, 1))
+            for b in (up, down):
+                b.configure(padx=px(6), pady=px(2), takefocus=0)
+            up_item = self.canvas.create_window(0, 0, window=up, anchor='e', state='hidden')
+            down_item = self.canvas.create_window(0, 0, window=down, anchor='e', state='hidden')
+            self.mods.append([name, folder, var, widget, item, up, up_item, down, down_item])
             var.trace_add('write', lambda *_a, n=name: self._switch_mod(n))
         self.focus_index = min(self.focus_index, max(0, len(self.focusable) - 1))
 
@@ -898,15 +921,20 @@ class Launcher(tk.Tk):
         c = self.canvas
         self._read_mods()
         folder = self._short(cfg.mods_dir(self.root))
-        self.help_text = (f'Each folder in {folder} replaces game files by their RomFS path (from its romfs/ folder, '
-                          'or the folder itself). Later names win. Changes apply at the next start.')
+        self.help_text = (f'Each folder in {folder} replaces game files by their RomFS path (its romfs/ folder, also '
+                          'one inside an Atmosphere or emulator layout, or the folder itself). Mods apply top to '
+                          'bottom and a lower one wins; ▲ ▼ reorder. Changes apply at the next start. '
+                          'Code patches (exefs, .ips, .pchtxt) do not apply to this build.')
         if not self.mods:
             self._text(x1 + px(32), top + px(24), 'No mods yet.', (UI, 11), TEXT)
-            self._text(x1 + px(32), top + px(52), f'Put each mod in its own folder in {folder}, then come back here.',
-                       (UI, 9), MUTED, width=max(px(200), x2 - x1 - px(64)))
+            self._text(x1 + px(32), top + px(52), 'Add a mod from its .zip or folder below (a romfs/ folder for '
+                       'Atmosphere, yuzu or Ryujinx works as it is), or put each mod in its own folder in '
+                       f'{folder}.', (UI, 9), MUTED, width=max(px(200), x2 - x1 - px(64)))
             return
         row_h = max(px(36), min(px(48), (bottom - top) // max(1, len(self.mods))))
-        for i, (name, _folder, _var, _widget, item) in enumerate(self.mods):
+        c.update_idletasks()
+        for i, mod in enumerate(self.mods):
+            name, item, up, up_item, down, down_item = mod[0], mod[4], mod[5], mod[6], mod[7], mod[8]
             mid = top + i * row_h + row_h // 2
             if mid > bottom:
                 break
@@ -916,6 +944,47 @@ class Launcher(tk.Tk):
                               tags=('chrome',))
             c.coords(item, x2 - px(32), mid)
             c.itemconfigure(item, state='normal')
+            right = x2 - px(32) - mod[3].winfo_reqwidth() - px(16)
+            for b, bi in ((down, down_item), (up, up_item)):
+                c.coords(bi, right, mid)
+                c.itemconfigure(bi, state='normal')
+                right -= b.winfo_reqwidth() + px(4)
+
+    def _move_mod(self, name, delta):
+        try:
+            cfg.move_mod(self.root, name, delta)
+            self._set_status(f'Mod {name} moved; the order applies from the next start.')
+        except OSError as e:
+            self._set_status(f'Mod {name}: {e}', bad=True)
+        self.layout()
+
+    def _add_mod(self, source):
+        if not source:
+            return
+        try:
+            name = cfg.add_mod(self.root, source)
+            self._set_status(f'Mod {name} added; it is on from the next start.')
+        except (OSError, zipfile.BadZipFile) as e:
+            self._set_status(f'Could not add the mod: {e}', bad=True)
+        self.layout()
+
+    def _add_mod_zip(self):
+        self._add_mod(filedialog.askopenfilename(parent=self, title='A mod archive',
+                                                 filetypes=[('Zip archives', '*.zip'), ('All files', '*.*')]))
+
+    def _add_mod_folder(self):
+        self._add_mod(filedialog.askdirectory(parent=self, title="A mod's folder (its romfs/ or the folder above it)"))
+
+    def _open_mods(self):
+        folder = cfg.mods_dir(self.root)
+        folder.mkdir(parents=True, exist_ok=True)
+        try:
+            if sys.platform == 'win32':
+                os.startfile(folder)  # noqa: S606 - the player's own folder
+            else:
+                subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', str(folder)])
+        except OSError as e:
+            self._set_status(f'Could not open {folder}: {e}', bad=True)
 
     # -- views ----------------------------------------------------------------------------------------------------
     def show_home(self):

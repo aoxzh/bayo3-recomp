@@ -417,26 +417,41 @@ def paths(root, host=None):
 
 
 # ---- mods ------------------------------------------------------------------------------------------------------
-# runtime/src/hle_fs.cpp scan_mods: every folder under <data root>/mods replaces game files by their RomFS path; folders
-# apply in name order (a later one wins) and a name starting with '-' or '.' is off. The launcher switches a mod by
-# adding or removing that '-', so the order of the mods that are on never changes.
+# runtime/src/hle_fs.cpp scan_mods: every folder under <data root>/mods replaces game files by their RomFS path (its
+# romfs/ folder, also one nested in an Atmosphere or emulator layout); folders apply in the order mods/order.txt lists
+# them, then the unlisted ones in name order, and a later one wins. A name starting with '-' or '.' is off. The
+# launcher switches a mod by adding or removing that '-', and moves one by rewriting order.txt.
+
+ORDER_FILE = 'order.txt'
+MOD_ARCHIVES = ('.zip',)
+
 
 def mods_dir(root, host=None):
     return paths(root, host)['data'] / 'mods'
 
 
+def _mod_order(folder):
+    try:
+        lines = (folder / ORDER_FILE).read_text(encoding='utf-8').splitlines()
+    except OSError:
+        return []
+    return [line.strip().lstrip('-') for line in lines if line.strip().lstrip('-')]
+
+
 def mods_of(root, host=None):
-    """[(name, folder, on)] in the order the runtime applies them; name is the folder without its '-'."""
+    """[(name, folder, on)] in the order the runtime applies them (the last one wins); name is the folder without
+    its '-'."""
     folder = mods_dir(root, host)
     if not folder.is_dir():
         return []
+    order = _mod_order(folder)
     found = []
     for entry in folder.iterdir():
         if not entry.is_dir() or entry.name.startswith('.'):
             continue
         on = not entry.name.startswith('-')
         found.append((entry.name.lstrip('-') if not on else entry.name, entry.name, on))
-    return sorted(found, key=lambda m: m[0])
+    return sorted(found, key=lambda m: (order.index(m[0]) if m[0] in order else len(order), m[0]))
 
 
 def set_mod(root, folder, on, host=None):
@@ -450,6 +465,88 @@ def set_mod(root, folder, on, host=None):
         raise OSError(f'{base / target} already exists')
     (base / folder).rename(base / target)
     return target
+
+
+def move_mod(root, name, delta, host=None):
+    """Move a mod `delta` places in the apply order (positive: later, so it wins more); writes order.txt with every
+    mod. Returns the new order of names."""
+    names = [m[0] for m in mods_of(root, host)]
+    if name not in names:
+        raise OSError(f'no mod named {name}')
+    i = names.index(name)
+    j = max(0, min(len(names) - 1, i + delta))
+    names.insert(j, names.pop(i))
+    (mods_dir(root, host) / ORDER_FILE).write_text(''.join(n + '\n' for n in names), encoding='utf-8')
+    return names
+
+
+def _mod_name(stem, base):
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', stem).strip(' .-') or 'mod'
+    candidate, k = name, 2
+    while (base / candidate).exists() or (base / ('-' + candidate)).exists():
+        candidate, k = f'{name} ({k})', k + 1
+    return candidate
+
+
+def _romfs_in(folder, depth=0):
+    """The first romfs/ within four levels, like the runtime's mod_romfs."""
+    if (folder / 'romfs').is_dir():
+        return folder / 'romfs'
+    if depth >= 4:
+        return None
+    for sub in sorted(p for p in folder.iterdir() if p.is_dir()):
+        found = _romfs_in(sub, depth + 1)
+        if found:
+            return found
+    return None
+
+
+def add_mod(root, source, host=None):
+    """Install a mod from a .zip or a folder into the mods folder, as <name>/romfs when the mod has a romfs/ (at any
+    of the depths console and emulator layouts put it), else as it is. Returns the new folder name. Only the RomFS
+    is used: exefs/ code patches (.ips, .pchtxt) patch the Switch program, which this build does not run."""
+    import shutil
+    import tempfile
+    import zipfile
+    source = Path(source)
+    base = mods_dir(root, host)
+    base.mkdir(parents=True, exist_ok=True)
+    name = _mod_name(source.stem if source.is_file() else source.name, base)
+    with tempfile.TemporaryDirectory(prefix='.add-', dir=base) as tmp:
+        work = Path(tmp) / 'x'
+        if source.is_file():
+            if source.suffix.lower() not in MOD_ARCHIVES:
+                raise OSError(f'{source.name}: only .zip archives can be added (unpack it to a folder first)')
+            with zipfile.ZipFile(source) as z:
+                for info in z.infolist():
+                    parts = Path(info.filename.replace('\\', '/')).parts
+                    if info.filename.startswith(('/', '\\')) or '..' in parts or (parts and ':' in parts[0]):
+                        raise OSError(f'{source.name}: unsafe path in the archive: {info.filename}')
+                z.extractall(work)
+        elif source.is_dir():
+            shutil.copytree(source, work)
+        else:
+            raise OSError(f'{source} is not a file or a folder')
+        romfs = _romfs_in(work)
+        if romfs is None:
+            # No romfs/: one wrapping folder (the archive's own name) is unwrapped.
+            entries = [p for p in work.iterdir() if not p.name.startswith('__MACOSX')]
+            content = entries[0] if len(entries) == 1 and entries[0].is_dir() else work
+            shutil.move(str(content), str(base / name))
+        else:
+            (base / name).mkdir()
+            shutil.move(str(romfs), str(base / name / 'romfs'))
+    return name
+
+
+def remove_mod(root, folder, host=None):
+    """Delete a mod folder (to the recycle bin is the caller's choice; this removes it)."""
+    import shutil
+    base = mods_dir(root, host)
+    target = (base / folder).resolve()
+    if target.parent != base.resolve() or not target.is_dir():
+        raise OSError(f'{folder} is not a mod folder')
+    shutil.rmtree(target)
 
 
 def build_hint(host=None):

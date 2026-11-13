@@ -163,18 +163,45 @@ void trace_movie_read(const File& file, int64_t off, uint64_t size, uint64_t got
             (unsigned long long)size, (unsigned long long)got, rc);
 }
 
-// Mods: every folder under <data root>/mods replaces game files by their RomFS path, from <mod>/romfs/<path> (or
-// <mod>/<path> when the mod has no romfs/ folder). Folders apply in name order and a later one wins; a name starting
-// with '-' or '.' is switched off. Read once, when the rom mount is first made; the log lists what was found. Mods
-// replace files the game opens by name; a file only a mod has does not show up in a directory listing.
+// Mods: every folder under <data root>/mods replaces game files by their RomFS path, from <mod>/romfs/<path>. A mod
+// packed for a console or another emulator keeps its romfs/ deeper (atmosphere/contents/<title id>/romfs,
+// <title id>/romfs, <name>/romfs): the first romfs/ within four levels is used, else the folder itself. Folders apply
+// in the order mods/order.txt lists them (one folder name a line, '-' prefix ignored; a later one wins), then the
+// unlisted ones in name order; a name starting with '-' or '.' is switched off. Read once, when the rom mount is first
+// made; the log lists what was found. Mods replace files the game opens by name; a file only a mod has does not show
+// up in a directory listing.
 std::vector<fs::path> g_mod_roots;  // the winner first
+
+fs::path mod_romfs(const fs::path& dir, int depth = 0) {
+    std::error_code ec;
+    if (fs::is_directory(dir / "romfs", ec)) return dir / "romfs";
+    if (depth >= 4) return {};
+    std::vector<fs::path> subs;
+    for (auto& e : fs::directory_iterator(dir, ec))
+        if (e.is_directory(ec)) subs.push_back(e.path());
+    std::sort(subs.begin(), subs.end());
+    for (auto& d : subs)
+        if (fs::path r = mod_romfs(d, depth + 1); !r.empty()) return r;
+    return {};
+}
 
 void scan_mods() {
     g_mod_roots.clear();
     std::error_code ec;
     const fs::path mods = data_root() / "mods";
     if (!fs::is_directory(mods, ec)) return;
-    std::vector<fs::path> found;
+    std::vector<std::string> order;  // mods/order.txt
+    if (FILE* f = plat::fopen_utf8(utf8(mods / "order.txt"), "rb")) {
+        char line[512];
+        while (std::fgets(line, sizeof line, f)) {
+            std::string n = line;
+            while (!n.empty() && std::isspace(static_cast<unsigned char>(n.back()))) n.pop_back();
+            while (!n.empty() && n[0] == '-') n.erase(0, 1);
+            if (!n.empty()) order.push_back(n);
+        }
+        std::fclose(f);
+    }
+    std::vector<std::pair<std::pair<size_t, std::string>, fs::path>> found;
     for (auto& e : fs::directory_iterator(mods, ec)) {
         if (!e.is_directory(ec)) continue;
         const std::string name = utf8(e.path().filename());
@@ -182,11 +209,14 @@ void scan_mods() {
             log("fs: mod %s is off (its name starts with '%c')", name.c_str(), name.empty() ? '?' : name[0]);
             continue;
         }
-        found.push_back(fs::is_directory(e.path() / "romfs", ec) ? e.path() / "romfs" : e.path());
+        const size_t at = size_t(std::find(order.begin(), order.end(), name) - order.begin());
+        fs::path root = mod_romfs(e.path());
+        found.push_back({{at, name}, root.empty() ? e.path() : root});
     }
     std::sort(found.begin(), found.end());
-    for (auto& m : found) log("fs: mod %s", utf8(m).c_str());
-    g_mod_roots.assign(found.rbegin(), found.rend());
+    for (auto& m : found) log("fs: mod %s", utf8(m.second).c_str());
+    g_mod_roots.clear();
+    for (auto it = found.rbegin(); it != found.rend(); ++it) g_mod_roots.push_back(it->second);
 }
 
 // The mod file that replaces `rest` of the RomFS, or empty.

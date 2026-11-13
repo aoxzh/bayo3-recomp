@@ -137,8 +137,12 @@ ASTC themselves and do not use it. BC7 here is one mode (one subset): 45 dB agai
 about 25 dB on the rare block with several distinct colours.
 
 **Mods** go in `private/win/run/b3/mods/<name>/romfs/` (or straight in `mods/<name>/`), with the same paths as the
-game's RomFS: a file there replaces the game's file of that name. Folders apply in name order and a later one wins;
-rename a folder to start with `-` to switch it off. The log lists the mods it found (`fs: mod ...`).
+game's RomFS: a file there replaces the game's file of that name. A mod packed for a console or another emulator works
+as it is: the first `romfs/` within four levels is used (`atmosphere/contents/<title id>/romfs`, `<title id>/romfs`).
+Folders apply in the order `mods/order.txt` lists them (one folder name a line), then the others in name order, and a
+later one wins; rename a folder to start with `-` to switch it off. The launcher's Mods tab does all of this: add a mod
+from its .zip or folder, switch it on or off, and move it up or down. Code patches (`exefs/`, `.ips`, `.pchtxt`) patch
+the Switch program and do nothing here. The log lists the mods it found (`fs: mod ...`).
 
 **A release zip** of this checkout: `python tools\b3_win.py package [--python <a Python install folder>]
 [--toolset <folder>]` writes `dist\Bayonetta3Recomp-<version>-windows-x64.zip` (on Linux:

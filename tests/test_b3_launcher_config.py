@@ -378,6 +378,48 @@ def test_mods_switch_by_their_dash():
               'the folders were renamed in place')
 
 
+def test_mods_order_add_and_layouts():
+    import zipfile
+    with tempfile.TemporaryDirectory(prefix='b3-mods-') as tmp:
+        root = Path(tmp)
+        mods = cfg.mods_dir(root, host='win')
+        for name in ('a', 'b', '-c'):
+            (mods / name).mkdir(parents=True)
+        eq(cfg.move_mod(root, 'a', 1, host='win'), ['b', 'a', 'c'], 'moving a later')
+        eq([m[0] for m in cfg.mods_of(root, host='win')], ['b', 'a', 'c'], 'order.txt is the apply order')
+        eq(cfg.move_mod(root, 'c', -5, host='win'), ['c', 'b', 'a'], 'clamped at the top; an off mod moves too')
+        (mods / 'd').mkdir()
+        eq([m[0] for m in cfg.mods_of(root, host='win')], ['c', 'b', 'a', 'd'], 'unlisted mods come after, by name')
+        # An Atmosphere-layout zip: atmosphere/contents/<title id>/romfs/... plus an exefs patch.
+        z = root / 'No Grain HUD.zip'
+        with zipfile.ZipFile(z, 'w') as w:
+            w.writestr('atmosphere/contents/01004A4010FEA000/romfs/ui/ui.dat', b'x')
+            w.writestr('atmosphere/exefs_patches/x/abc.ips', b'p')
+        name = cfg.add_mod(root, z, host='win')
+        eq(name, 'No Grain HUD', 'named after the archive')
+        check((mods / name / 'romfs' / 'ui' / 'ui.dat').is_file(), 'the nested romfs/ became <mod>/romfs')
+        check(not (mods / name / 'atmosphere').exists(), 'only the romfs is kept')
+        eq(cfg.add_mod(root, z, host='win'), 'No Grain HUD (2)', 'a second copy gets its own name')
+        # A zip with one wrapping folder and no romfs/: unwrapped.
+        z2 = root / 'loose.zip'
+        with zipfile.ZipFile(z2, 'w') as w:
+            w.writestr('loose/pl/pl0010.dat', b'y')
+        eq(cfg.add_mod(root, z2, host='win'), 'loose', 'loose mod named after its archive')
+        check((mods / 'loose' / 'pl' / 'pl0010.dat').is_file(), 'the wrapping folder is unwrapped')
+        bad = root / 'bad.zip'
+        with zipfile.ZipFile(bad, 'w') as w:
+            w.writestr('../evil.txt', b'z')
+        try:
+            cfg.add_mod(root, bad, host='win')
+            check(False, 'an archive escaping the mods folder is refused')
+        except OSError:
+            pass
+        check(not (root / 'evil.txt').exists() and not any(p.name.startswith('.add-') for p in mods.iterdir()),
+              'nothing written outside, no work folder left')
+        cfg.remove_mod(root, 'loose', host='win')
+        check(not (mods / 'loose').exists(), 'remove_mod deletes the folder')
+
+
 def test_reset_keeps_comments():
     conf = cfg.Conf.parse('# a\nresolution=1600x900\npad_swap=1\n# b\n')
     cfg.reset_to_defaults(conf)
