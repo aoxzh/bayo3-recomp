@@ -640,7 +640,7 @@ void read_frames_decoder(Session* s, Next next, Rewind rewind, Stop stop, std::m
 #if defined(__ANDROID__)
 void read_frames_android(Session* s) {
     read_frames_decoder(
-        s, [s](std::vector<uint8_t>& nv12, int64_t&) { return s->android->next(nv12); },
+        s, [s](std::vector<uint8_t>& nv12, int64_t& pts) { return s->android->next(nv12, pts); },
         [s] { return s->android->rewind(); }, [s] { s->android->stop(); }, s->android_rewind_m);
 }
 #endif

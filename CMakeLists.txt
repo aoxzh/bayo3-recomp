@@ -75,8 +75,21 @@ endif()
 # the loaded image so their virtual calls reach host code. The slot maps were read statically from the module image
 # (docs/LINUX-VERIFICATION-2026-10-22.md §12), so this needs no probe build; NX_MOVIE_VTABLE=log installs a logging
 # table that tail-calls the game's own implementation, which is how the seam gets verified before FFmpeg is wired in.
-# OFF by default: a normal build does not compile the file at all.
 option(NX_MOVIE_VTABLE "Build the movie:: vtable patch (NX_MOVIE_VTABLE=log to trace the seam)" OFF)
+# The frame-fetch observer, ON by default on desktop: it compiles the same file, and at runtime (NX_MOVIE_VTABLE unset)
+# patches only movie::Decoder, at the first movie open, to observe the game's own frame fetch. That fetch names the film,
+# its timestamp and its two plane buffers, so movie.cpp serves each plane from the right film at the game's own time
+# instead of guessing by open order and wall clock (issue #3: the game pre-opens the next film while one plays).
+# NX_MOVIE_VTABLE=0 turns it off at runtime; =log/1 is the full study mode. A separate option
+# name, so build folders that cached NX_MOVIE_VTABLE=OFF pick it up on a Rebuild. Android: OFF until checked on a device.
+if(ANDROID)
+    option(NX_MOVIE_FRAME_SOURCE "Observe the game's movie frame fetch (movie::Decoder slot 15)" OFF)
+else()
+    option(NX_MOVIE_FRAME_SOURCE "Observe the game's movie frame fetch (movie::Decoder slot 15)" ON)
+endif()
+if(NX_MOVIE_FRAME_SOURCE)
+    set(NX_MOVIE_VTABLE ON)
+endif()
 # Serving frames from FFmpeg through that table. Needs FFmpeg's development libraries; OFF until both movies play.
 option(NX_MOVIE_FFMPEG "Serve movie:: from FFmpeg (implies NX_MOVIE_VTABLE)" OFF)
 if(NX_MOVIE_FFMPEG)
@@ -446,8 +459,8 @@ if(NX_GAME STREQUAL "bayonetta3" OR NX_GAME STREQUAL "bayonetta3prog1")
          runtime/src/hle_movie.cpp runtime/src/b3_scene_clock.cpp runtime/src/b3_fps_counters.cpp
          runtime/src/b3_model_lod.cpp
          runtime/src/b3_guest_fastpaths.cpp)
-    # The movie:: entry-point probe / FFmpeg vtable replacement (docs/LINUX-VERIFICATION-2026-10-22.md §8). It is only
-    # compiled in for the probe or the FFmpeg build; a normal build never sees it.
+    # The movie:: vtable seam (docs/LINUX-VERIFICATION-2026-10-22.md §8): by default only the frame-fetch observer
+    # (see the NX_MOVIE_VTABLE option above).
     if(NX_MOVIE_VTABLE)
         list(APPEND NX_RUNTIME_SOURCES runtime/src/hle_movie_api.cpp)
     endif()

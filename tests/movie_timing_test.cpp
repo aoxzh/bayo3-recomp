@@ -556,7 +556,8 @@ class FakeAndroidStream final : public nx::movie_android::Stream {
     std::shared_ptr<AndroidState> s_;
 public:
     explicit FakeAndroidStream(std::shared_ptr<AndroidState> s) : s_(std::move(s)) {}
-    bool next(std::vector<uint8_t>& nv12) override {
+    bool next(std::vector<uint8_t>& nv12, int64_t& pts_us) override {
+        (void)pts_us;  // no timestamp: the reader keeps kNoPts
         const int call = s_->calls.fetch_add(1);
         if (s_->mode == "block") {
             std::unique_lock lk(s_->m);

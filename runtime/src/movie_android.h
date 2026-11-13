@@ -27,7 +27,8 @@ class Stream {
   public:
     virtual ~Stream() = default;
     // Blocks until a frame is ready. False at the end of the stream, on a decoder error, or once stop() is called.
-    virtual bool next(std::vector<uint8_t>& nv12) = 0;
+    // pts_us is the frame's source presentation time (MediaCodec presentationTimeUs), as the Windows decoder gives.
+    virtual bool next(std::vector<uint8_t>& nv12, int64_t& pts_us) = 0;
     // Rewinds to the first frame, for the looping title/background movies. False when the container cannot seek.
     virtual bool rewind() = 0;
     // Ends the session from any thread; a next() already in flight returns false promptly.

@@ -142,7 +142,7 @@ class MediaCodecStream final : public Stream {
         return true;
     }
 
-    bool next(std::vector<uint8_t>& nv12) override {
+    bool next(std::vector<uint8_t>& nv12, int64_t& pts_us) override {
         for (int guard = 0; guard < 6000; guard++) {
             if (stopped_.load(std::memory_order_relaxed)) return false;
             if (!input_done_) feed_input();
@@ -162,6 +162,7 @@ class MediaCodecStream final : public Stream {
             size_t cap = 0;
             uint8_t* buf = AMediaCodec_getOutputBuffer(codec_, size_t(ob), &cap);
             const bool ok = buf && convert(buf, cap, nv12);
+            pts_us = int64_t(info.presentationTimeUs);
             AMediaCodec_releaseOutputBuffer(codec_, size_t(ob), false);  // no render: this is not a screen
             if (ok) return true;
             // A frame we cannot lay out is skipped rather than ending playback: the next one may be fine.

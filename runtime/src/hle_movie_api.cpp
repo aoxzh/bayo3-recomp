@@ -633,6 +633,12 @@ void install_decoder_probe();  // plat:: (defined with the other vtable installe
 // slot saved at install time, then log the answer and the string/int it returned.
 uint64_t g_find_string_real = 0, g_find_int32_real = 0;
 bool g_media_probes = false;
+// The default (NX_MOVIE_VTABLE unset): only movie::Decoder is patched, and only to observe the game's own frame fetch
+// (slot 15, movie_frame_source). Nothing in the game's behaviour changes: no other table, no stream preload window,
+// no host-sent events, no logging. The full study mode (log/1) patches everything as before. A run with the full mode
+// stalled at the Prologue's post-ev0011 load (ev0011 never closed) while the frame-only mode is all the movie path
+// needs: the fetch names the film, its timestamp and the two plane buffers, so no film has to be guessed.
+bool g_frame_only = false;
 
 std::string guest_string(uint64_t p) {
     if (!p) return {};
@@ -1043,8 +1049,8 @@ void install_media_probes() {
 // A thunk for one (class, slot). Logs the caller, the call and its Result, then calls the game's original so
 // behaviour is unchanged.
 void dispatch(CPU& c, int which, int slot) {
-    static const int cap = env_int("NX_MOVIE_VTABLE_CAP", kLogPerSlot);
-    static const int bt_cap = env_int("NX_MOVIE_VTABLE_BT", 1);
+    static const int cap = g_frame_only ? 0 : env_int("NX_MOVIE_VTABLE_CAP", kLogPerSlot);
+    static const int bt_cap = g_frame_only ? 0 : env_int("NX_MOVIE_VTABLE_BT", 1);
     SlotState& s = g_slots[which][slot];
     const int n = s.calls.fetch_add(1, std::memory_order_relaxed);
     const char* name = slot_name(which, slot);
@@ -1136,7 +1142,7 @@ void dispatch(CPU& c, int which, int slot) {
         log_out_params(which, slot, self, a1, a2, a3, a4, caller_fp);
     }
     if (which == kWhichDecoder && slot == 5) register_client_events(self, a1);
-    if (which == kWhichDecoder && slot == 7) signal_format_event(c, self);
+    if (which == kWhichDecoder && slot == 7 && !g_frame_only) signal_format_event(c, self);
     if (which == kWhichExtractor && slot == 17) plat::install_decoder_probe();
 }
 
@@ -1455,8 +1461,14 @@ namespace plat {
 // keeps the per-call logging).
 void movie_vtable_init() {
     const std::string m = mode();
-    log("movie-vt: init called, NX_MOVIE_VTABLE=%s", m.empty() ? "(default: on)" : m.c_str());
+    log("movie-vt: init called, NX_MOVIE_VTABLE=%s", m.empty() ? "(default: frame source only)" : m.c_str());
     if (m == "0") return;
+    if (m.empty()) {
+        // movie::Decoder is patched at the first movie open (install_decoder_probe via movie_vtable_late_player), never
+        // during boot: the boot-time NvMMLite path must not see a host thunk.
+        g_frame_only = true;
+        return;
+    }
     if (!m.empty() && m != "log" && m != "1") {
         log("movie-vt: NX_MOVIE_VTABLE=%s is not a known mode (use log, 1 or 0); installing the default", m.c_str());
     }
@@ -1489,6 +1501,10 @@ void movie_vtable_init() {
 void movie_vtable_late_player() {
     static std::atomic<bool> done{false};
     if (done.exchange(true)) return;
+    if (g_frame_only) {
+        install_decoder_probe();
+        return;
+    }
     install_media_probes();
     const char* also = std::getenv("NX_MOVIE_VTABLE_PLAYER");
     if (!also || std::string(also) != "late") return;
