@@ -928,7 +928,8 @@ class Launcher(tk.Tk):
         self.help_text = (f'Each folder in {folder} replaces game files by their RomFS path (its romfs/ folder, also '
                           'one inside an Atmosphere or emulator layout, or the folder itself). Mods apply top to '
                           'bottom and a lower one wins; ▲ ▼ reorder. Changes apply at the next start. '
-                          'Code patches (exefs, .ips, .pchtxt) do not apply to this build.')
+                          'Code patches (.ips, .pchtxt for version 1.2.0) work too: when they change, Play makes the '
+                          'game code again first (a few minutes).')
         if not self.mods:
             self._text(x1 + px(32), top + px(24), 'No mods yet.', (UI, 11), TEXT)
             self._text(x1 + px(32), top + px(52), 'Add a mod from its .zip or folder below (a romfs/ folder for '

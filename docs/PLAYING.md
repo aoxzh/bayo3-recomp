@@ -143,8 +143,18 @@ game's RomFS: a file there replaces the game's file of that name. A mod packed f
 as it is: the first `romfs/` within four levels is used (`atmosphere/contents/<title id>/romfs`, `<title id>/romfs`).
 Folders apply in the order `mods/order.txt` lists them (one folder name a line), then the others in name order, and a
 later one wins; rename a folder to start with `-` to switch it off. The launcher's Mods tab does all of this: add a mod
-from its .zip or folder, switch it on or off, and move it up or down. Code patches (`exefs/`, `.ips`, `.pchtxt`) patch
-the Switch program and do nothing here. The log lists the mods it found (`fs: mod ...`).
+from its .zip or folder, switch it on or off, and move it up or down. The log lists the mods it found (`fs: mod ...`).
+
+**Code patches** in a mod work too: `.ips` / IPS32 files named by the build ID (Atmosphere's `exefs_patches`, the
+`exefs/` folder of yuzu and Ryujinx mods) and IPSwitch `.pchtxt` files, for version 1.2.0 (main's build ID starts
+`B47CC79B88B7091E`). The game's code is compiled on your PC from the program, so a patch is applied to the program
+before it is recompiled: the instructions it changes become compiled code, and the data it changes is what the game
+loads. When the set of patches of your switched-on mods changes, Play makes the affected game code again before the
+game starts (a few minutes; only the functions a patch touches compile again), and switching the mod off puts the
+original code back the same way. `python tools/b3_win.py update` does the same. Patches are read at the console's
+offsets (an IPS offset counts the program's 0x100-byte header; a `.pchtxt` adds its `@flag offset_shift`), and only
+lines inside an `@enabled` block are applied, as yuzu and Ryujinx do. A patch to one of the few functions this port
+replaces with its own code (`recomp/b3_hooks.py`) has no effect there.
 
 **A release zip** of this checkout: `python tools\b3_win.py package [--python <a Python install folder>]
 [--toolset <folder>]` writes `dist\Bayonetta3Recomp-<version>-windows-x64.zip` (on Linux:
@@ -188,6 +198,13 @@ the d-pad choose and change, Esc or B closes; the game is paused while it is ope
 `Highest` (`model_lod=highest`) keeps every model with more than one level of detail at its finest at any distance. Film grain `Off` (`film_grain=off`) drops the grain the
 game lays over the picture, from the next scene on (the same field the community "No Film Grain" mod removes). Only some of the game's
 scene looks use grain (about half of the look presets in `core/core.dat` set it to 1.5); the prologue uses none, so you see no change there.
+
+**Menus and realtime cutscenes run at your display's rate**, not the console's 30 fps: the game still asks for 30 (or 15
+in some menus), but frames are paced by the display's clock, and the game moves its scenes by the time it measures, so
+each 60 Hz frame is a new picture at the right speed. Measured in chapter 14's opening cutscene: 545 of 600 presents
+14-19 ms apart while the game asked for 30 fps, and no two consecutive frames alike. Nothing needs turning on (other
+recompilations of this game offer it as a `cutscene_fps` option). Pre-rendered movies keep their own 30 fps.
+`NX_HONOR_PRESENT_INTERVAL=1` restores the console's pacing.
 
 In the picture book's prologue, + offers to close the book; that returns to Bayonetta 3, where Continue goes back to
 the hub. For Discord Rich Presence, create an application at discord.com/developers (its name is what your friends

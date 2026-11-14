@@ -168,11 +168,11 @@ def test_update_plan():
     with tempfile.TemporaryDirectory() as tmp:
         w = fresh(tmp)
         same = {s: {'fingerprint': w.fingerprint(s)} for s in w.FINGERPRINTED}
-        eq([s for s, _ in w.update_plan(same)], ['hooks', 'build', 'link'], 'unchanged tools: hooks, build, link')
+        eq([s for s, _ in w.update_plan(same)], ['hooks', 'patches', 'build', 'link'], 'unchanged tools: hooks, patches, build, link')
         changed = dict(same, cpu={'fingerprint': 'old'})
-        eq([s for s, _ in w.update_plan(changed)], ['cpu', 'build', 'link'], 'changed recompiler: cpu again')
+        eq([s for s, _ in w.update_plan(changed)], ['cpu', 'patches', 'build', 'link'], 'changed recompiler: cpu again')
         legacy = {'cpu': {}, 'shaders': {}}
-        eq([s for s, _ in w.update_plan(legacy)], ['hooks', 'build', 'link'], 'no fingerprint yet: kept')
+        eq([s for s, _ in w.update_plan(legacy)], ['hooks', 'patches', 'build', 'link'], 'no fingerprint yet: kept')
         check('recomp/b3_hooks.py' in w.NOT_FINGERPRINTED, 'hook table changes do not regenerate')
 
 

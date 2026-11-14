@@ -14,7 +14,7 @@ import io
 import os
 import time
 
-from . import analysis, b3_hooks, emit, nso
+from . import analysis, b3_hooks, emit, nso, patches
 
 INSNS_PER_FILE = 12000
 
@@ -49,12 +49,22 @@ def main():
     ap.add_argument("--base", default="0x4000000000")
     ap.add_argument("--only", nargs="*", default=None, help="only these function addresses (debug)")
     ap.add_argument("--seed", nargs="*", default=[], help="extra function entry addresses (hex) inside FDEs, from runtime mid-function fatals")
+    ap.add_argument("--patch", nargs="*", default=[], help="code patch files (.ips named by build ID, .pchtxt); the "
+                    "ones naming this module's build ID are applied to the image first (recomp/patches.py)")
     args = ap.parse_args()
     base = int(args.base, 0)
     name = args.name
 
     t = time.time()
     m = nso.load(args.nso, name)
+    if args.patch:
+        with open(args.nso, "rb") as f:
+            module_id = patches.build_id(f.read(0x60))
+        pats = patches.patches_for(module_id, args.patch)
+        for problem in patches.apply(m.image, pats):
+            raise SystemExit(f"code patch: {problem}")
+        for f, records in pats:
+            print(f"code patch: {f} ({len(records)} writes)")
     an = analysis.analyze(m, extra_seeds=[int(x, 16) for x in args.seed])
     print(f"analysis: {len(an.functions)} functions, {len(an.jump_tables)} jump tables ({time.time() - t:.1f}s)")
 

@@ -425,6 +425,7 @@ def paths(root, host=None):
 
 ORDER_FILE = 'order.txt'
 MOD_ARCHIVES = ('.zip',)
+CODE_PATCHES = ('.ips', '.pchtxt')  # code patch files a mod may carry (recomp/patches.py)
 
 
 def mods_dir(root, host=None):
@@ -504,8 +505,9 @@ def _romfs_in(folder, depth=0):
 
 def add_mod(root, source, host=None):
     """Install a mod from a .zip or a folder into the mods folder, as <name>/romfs when the mod has a romfs/ (at any
-    of the depths console and emulator layouts put it), else as it is. Returns the new folder name. Only the RomFS
-    is used: exefs/ code patches (.ips, .pchtxt) patch the Switch program, which this build does not run."""
+    of the depths console and emulator layouts put it), else as it is; its code patches (.ips, .pchtxt, anywhere
+    outside romfs/) are kept in <name>/exefs/ with their paths. Returns the new folder name. The code patches apply
+    when the game code is made again, which Play does on its own when they change (recomp/patches.py)."""
     import shutil
     import tempfile
     import zipfile
@@ -537,6 +539,11 @@ def add_mod(root, source, host=None):
         else:
             (base / name).mkdir()
             shutil.move(str(romfs), str(base / name / 'romfs'))
+            for patch in sorted(work.rglob('*')):
+                if patch.is_file() and patch.suffix.lower() in CODE_PATCHES:
+                    dest = base / name / 'exefs' / patch.relative_to(work)
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(patch), str(dest))
     return name
 
 

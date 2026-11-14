@@ -61,6 +61,7 @@ ANDROID_DATA = Path(os.environ.get('B3_ANDROID_DATA') or '/sdcard/Bayonetta 3')
 ANDROID_GAME = Path(os.environ.get('B3_ANDROID_GAME') or '/nonexistent')
 ANDROID_API = 29
 STATE = WIN / 'state.json'
+CODE_PATCHES = WIN / 'code_patches.json'  # {program: {module: fingerprint}}: the code patches the generated code has
 SETTINGS = WIN / 'setup.json'
 STEPS = ['deps', 'verify', 'data', 'cpu', 'shaders', 'build', 'link']
 PROGRAMS = {  # program -> (version configuration, executable target, data root name)
@@ -624,8 +625,67 @@ def step_cpu(settings, log):
         say(f'cpu: generating {program} (10-40 minutes)')
         exefs, romfs = local_layout(settings, program)
         run([found['python'], ROOT / 'tools/prepare_bayonetta3.py', '--generate', '--config', PROGRAMS[program][0],
-             '--exefs', exefs, '--romfs', romfs, '--output', out, '--python', found['python']],
-            log, env=build_env(found))
+             '--exefs', exefs, '--romfs', romfs, '--output', out, '--python', found['python'],
+             '--mods', mods_root(program)], log, env=build_env(found))
+        record_code_patches(program, code_patches(settings, program, regenerate=False, log=log)[0])
+
+
+def mods_root(program):
+    """The program's mods folder (<data root>/mods): romfs mods for the runtime, code patches for the cpu step."""
+    if ANDROID:
+        return ANDROID_DATA / 'mods'
+    b3_root, prog1_root = data_roots()
+    return (b3_root if program == 'b3' else prog1_root) / 'mods'
+
+
+def record_code_patches(program, prints):
+    recorded = load(CODE_PATCHES, {})
+    recorded[program] = {k: v for k, v in prints.items() if v}
+    save(CODE_PATCHES, recorded)
+
+
+def code_patches(settings, program, regenerate, log=None):
+    """({module: fingerprint} of the code patches the program's mods have now, {module: fingerprint} its code was
+    made with). With regenerate, the modules that differ are made again (tools/apply_code_patches.py) and recorded."""
+    found = tools(settings)
+    exefs, _ = local_layout(settings, program)
+    recorded = load(CODE_PATCHES, {}).get(program, {})
+    cmd = [found['python'], ROOT / 'tools/apply_code_patches.py', '--cpu', WIN / 'cpu' / program, '--exefs', exefs,
+           '--mods', mods_root(program), '--recorded', json.dumps(recorded)] + ([] if regenerate else ['--check'])
+    cmd = [str(c) for c in cmd]
+    p = subprocess.run(cmd, cwd=ROOT, env=build_env(found), capture_output=True, text=True)
+    if log is not None:
+        with log.open('a', encoding='utf-8') as f:
+            f.write(f'\n$ {subprocess.list2cmdline(cmd)}\n{p.stdout}{p.stderr}')
+    if p.returncode:
+        tail = (p.stdout + p.stderr).strip().splitlines()[-8:]
+        raise SetupError('code patches: ' + '\n  '.join(tail))
+    prints = {}
+    for line in p.stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[0] == 'patches':
+            prints[parts[1]] = '' if parts[2] == '-' else parts[2]
+        elif line.startswith(('code patch', 'main:', 'subsdk0:', 'sdk:')):  # not the recompiler's progress lines
+            say(f'patches: {program}: {line.strip()}')
+    if regenerate:
+        record_code_patches(program, prints)
+    return prints, recorded
+
+
+def patches_pending(settings):
+    """The programs whose mods' code patches differ from what their code was made with."""
+    pending = []
+    for program in programs(settings):
+        now, recorded = code_patches(settings, program, regenerate=False)
+        if {k: v for k, v in now.items() if v} != recorded:
+            pending.append(program)
+    return pending
+
+
+def step_patches(settings, log):
+    """The modules whose code patches changed are generated again, in place (only their changed files rebuild)."""
+    for program in programs(settings):
+        code_patches(settings, program, regenerate=True, log=log)
 
 
 def step_shaders(settings, log):
@@ -886,6 +946,7 @@ def update_plan(state):
             plan.append((step, 'its tools changed: made again'))
     if not any(s == 'cpu' for s, _ in plan):
         plan.append(('hooks', 'new runtime hooks applied to the generated code in place'))
+    plan.append(('patches', 'the code patches of switched-on mods (only a changed set makes code again)'))
     plan.append(('build', 'only the changed files compile again'))
     plan.append(('link', 'the data roots'))
     return plan
@@ -931,6 +992,8 @@ def update(a):
                  '--apply', '--backup', WIN / f'hooks-backup-{stamp}'], log)
         elif step == 'build':
             step_build(settings, log, a.jobs)
+        elif step == 'patches':
+            step_patches(settings, log)
         else:
             step_link(settings, log)
         if step in STEPS:
@@ -1020,6 +1083,14 @@ def play(a):
     roots = {0: b3_root, 1: prog1_root}
     if not exes[0].exists():
         raise SetupError('not set up yet: python tools/b3_win.py setup --dump <your dump folder>')
+    if settings.get('dump') and not ANDROID and (WIN / 'cpu/b3/manifest.json').exists():
+        # A mod's code patches switched on or off: the modules they patch are made again before the game starts.
+        pending = patches_pending(settings)
+        if pending:
+            log = WIN / 'logs' / f'patches-{time.strftime("%Y%m%d-%H%M%S")}.log'
+            say('play: the code patches of your mods changed: making the game code again (a few minutes)')
+            step_patches(settings, log)
+            step_build(settings, log, 0)
     conf = Path(os.environ.get('B3_CONFIG') or ROOT / 'private/b3.conf')  # B3_CONFIG: another file, as for b3_play.sh
     if not conf.exists():
         shutil.copyfile(ROOT / 'config/b3.conf.example', conf)

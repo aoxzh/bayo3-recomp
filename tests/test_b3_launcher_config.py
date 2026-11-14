@@ -398,7 +398,9 @@ def test_mods_order_add_and_layouts():
         name = cfg.add_mod(root, z, host='win')
         eq(name, 'No Grain HUD', 'named after the archive')
         check((mods / name / 'romfs' / 'ui' / 'ui.dat').is_file(), 'the nested romfs/ became <mod>/romfs')
-        check(not (mods / name / 'atmosphere').exists(), 'only the romfs is kept')
+        check(not (mods / name / 'atmosphere').exists(), 'only the romfs and the code patches are kept')
+        check((mods / name / 'exefs' / 'atmosphere' / 'exefs_patches' / 'x' / 'abc.ips').is_file(),
+              'the code patch is kept under <mod>/exefs with its path')
         eq(cfg.add_mod(root, z, host='win'), 'No Grain HUD (2)', 'a second copy gets its own name')
         # A zip with one wrapping folder and no romfs/: unwrapped.
         z2 = root / 'loose.zip'

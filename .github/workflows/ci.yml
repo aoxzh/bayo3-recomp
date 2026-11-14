@@ -47,6 +47,7 @@ jobs:
           python3 -m venv .venv-recomp
           .venv-recomp/bin/pip install -q -r requirements-bayonetta3.txt
           .venv-recomp/bin/python tests/recomp_analysis_test.py
+          .venv-recomp/bin/python tests/recomp_patches_test.py
 
   # The Steam Deck release: built on the oldest supported Ubuntu, so its sysroot's glibc (2.35) is older than any
   # current desktop distribution's or SteamOS 3's, and what the player compiles with it runs there.

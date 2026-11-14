@@ -306,9 +306,10 @@ def publish(stage, final):
     shutil.rmtree(backup)
 
 
-def generate_module(source, destination, name, python):
+def generate_module(source, destination, name, python, patch_files=()):
+    extra = ['--patch', *map(str, patch_files)] if patch_files else []
     subprocess.run([str(python), '-m', 'recomp', str(source), str(destination),
-                    '--name', name, '--base', hex(BASES[name])], cwd=ROOT, check=True)
+                    '--name', name, '--base', hex(BASES[name]), *extra], cwd=ROOT, check=True)
     required = ('funcs.h', 'table.cpp', 'report.txt')
     if any(not (destination / f).is_file() or not (destination / f).stat().st_size for f in required):
         raise ValueError(f'{name}: incomplete generated output')
@@ -387,6 +388,21 @@ def prepare(args):
     for name in cfg['runtime_modules']:
         modules[name], images[name] = inspect_module(exefs / name, name, cfg['modules'][name])
     layout = validate_layout(modules)
+    # Code patches: the same ones go into the image the runtime loads (analysis/<name>.bin) and into the code generated
+    # from it, so a module's data and its compiled code always agree. Recorded per module as `code_patches`.
+    sys.path.insert(0, str(ROOT)) if str(ROOT) not in sys.path else None
+    from recomp import patches as code_patches
+    patch_files = code_patches.find_files(args.mods) if getattr(args, 'mods', None) else []
+    patched = {}
+    for name in images:
+        module_id = code_patches.build_id((exefs / name).read_bytes()[:0x60])
+        pats = code_patches.patches_for(module_id, patch_files)
+        problems = code_patches.apply(images[name], pats)
+        if problems:
+            raise ValueError('code patch: ' + '; '.join(problems))
+        patched[name] = code_patches.fingerprint(module_id, patch_files)
+        for f, records in pats:
+            print(f'{name}: code patch {f.name} ({len(records)} writes)')
     # POSIX keys, so a manifest written on Windows names the recompiler files as one written elsewhere does.
     recompiler = {p.relative_to(ROOT).as_posix(): digest(p) for p in sorted((ROOT / 'recomp').glob('*.py'))}
     inputs = {'config_sha256': digest(args.config), 'npdm': npdm['sha256'],
@@ -417,13 +433,18 @@ def prepare(args):
                     if out.exists():
                         shutil.rmtree(out)
                     # Preserve the venv entrypoint symlink: resolving it loses pyvenv.cfg discovery.
-                    generate_module(exefs / name, out, name, args.python.absolute())
+                    generate_module(exefs / name, out, name, args.python.absolute(), patch_files)
                     if previous:
                         reuse_unchanged_files(final / 'gen' / name, out)
                     generated[name] = {'status': 'complete', 'source_sha256': modules[name]['sha256'],
-                                       'recompiler_sha256': recompiler,
+                                       'recompiler_sha256': recompiler, 'code_patches': patched[name],
                                        'command': [str(args.python.absolute()), '-m', 'recomp', str(exefs / name),
                                                    str(final / 'gen' / name), '--name', name, '--base', hex(BASES[name])]}
+            # A module's image and its generated code must carry the same code patches.
+            stale = [n for n, g in generated.items() if n in patched and g.get('code_patches', '') != patched[n]]
+            if stale:
+                raise ValueError(f'the code patches changed for {", ".join(stale)}: generate it again '
+                                 f'(--generate {" ".join("--module " + n for n in stale)})')
             # Detect changing inputs before publication; failed work never changes final.
             if any(digest(exefs / n) != m['sha256'] for n, m in modules.items()) or digest(exefs / 'main.npdm') != npdm['sha256']:
                 raise ValueError('Inputs changed during preparation')
@@ -465,6 +486,8 @@ def main():
     parser.add_argument('--config', type=Path, default=CONFIG)
     parser.add_argument('--output', type=Path, default=ROOT / 'private/bayonetta3')
     parser.add_argument('--python', type=Path, default=DEFAULT_PYTHON, help='Python for generation (default: current interpreter)')
+    parser.add_argument('--mods', type=Path, help="The data root's mods folder: the code patches (.ips, .pchtxt) of "
+                        'its switched-on mods are applied to the images and the generated code (recomp/patches.py)')
     parser.add_argument('--legacy-source', help='Exact original source path from the old manifest, for --migrate-config-source')
     args = parser.parse_args()
     if args.module and not args.generate:
