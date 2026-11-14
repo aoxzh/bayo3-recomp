@@ -51,7 +51,9 @@ is downloaded except the Kraken decoder's pinned source (about 100 KB, compiled 
    hashes, generates the code, translates and verifies the shaders, builds the game and links its data. It is
    resumable. `./Bayonetta3Recomp.sh --setup` does the same in the terminal.
 4. **Start game**. For Game Mode, add `Bayonetta3Recomp.sh` to Steam as a non-Steam game and set its launch options
-   to `--play`: Steam then starts the game directly, without the launcher.
+   to `--play`: Steam then starts the game directly, without the launcher. **Desktop shortcut** on the launcher's
+   System tab puts a "Bayonetta 3" entry in the applications menu and on the desktop; in Desktop Mode, right-click
+   that entry and choose *Add to Steam*. On Windows the same button puts a shortcut to the launcher on the desktop.
 
 Settings and saves work as on Windows (`private/b3.conf`, `private/win/run/b3/user/`); the game log is
 `private/win/logs/game.log`. A newer release unpacked over the folder keeps all of it; then choose **Rebuild**.

@@ -556,6 +556,68 @@ def build_hint(host=None):
     return 'cmake --build private/build-deck'
 
 
+# ---- desktop shortcut ------------------------------------------------------------------------------------------
+# A "Bayonetta 3" entry that opens the launcher. Linux: a .desktop file in the applications menu (where the Steam
+# Deck's desktop mode offers "Add to Steam") and on the desktop. Windows: a .lnk on the desktop.
+
+def desktop_entry(root):
+    """The text of the Linux .desktop file for this install."""
+    root = Path(root)
+    release = root / 'Bayonetta3Recomp.sh'
+    target = release if release.is_file() else root / 'scripts' / 'b3_launcher.sh'
+    icon = root / 'docs' / 'icon.png'
+    return ('[Desktop Entry]\nType=Application\nName=Bayonetta 3\nComment=Bayonetta 3 recomp launcher\n'
+            f'Exec="{target}"\nPath={root}\nIcon={icon if icon.is_file() else "applications-games"}\n'
+            'Terminal=false\nCategories=Game;\nStartupWMClass=bayonetta3\n')
+
+
+def make_shortcut(root, host=None, home=None):
+    """Create the desktop shortcut; returns the paths written."""
+    root = Path(root)
+    host = host or host_platform()
+    if host == 'win':
+        return [_windows_shortcut(root)]
+    home = Path(home or os.path.expanduser('~'))
+    apps = Path(os.environ.get('XDG_DATA_HOME') or home / '.local' / 'share') / 'applications'
+    apps.mkdir(parents=True, exist_ok=True)
+    written = [apps / 'bayonetta3-recomp.desktop']
+    desktop = home / 'Desktop'
+    if desktop.is_dir():
+        written.append(desktop / 'Bayonetta 3.desktop')
+    for path in written:
+        path.write_text(desktop_entry(root), encoding='utf-8')
+        path.chmod(0o755)
+    return written
+
+
+def _windows_shortcut(root):
+    import subprocess
+    pythonw = root / 'python' / 'pythonw.exe'
+    if not pythonw.is_file():
+        pythonw = Path(sys.executable).with_name('pythonw.exe')
+    icon = root / 'private' / 'b3.ico'
+    try:
+        from PIL import Image
+        if not icon.is_file():
+            icon.parent.mkdir(parents=True, exist_ok=True)
+            Image.open(root / 'docs' / 'icon.png').save(icon, sizes=[(256, 256), (64, 64), (48, 48), (32, 32),
+                                                                    (16, 16)])
+    except Exception:  # no Pillow or no icon: the shortcut takes Python's
+        icon = pythonw
+    # WScript.Shell through PowerShell; values passed as environment variables, never spliced into the script.
+    script = ("$d=[Environment]::GetFolderPath('Desktop'); $l=Join-Path $d 'Bayonetta 3.lnk';"
+              "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($l); $s.TargetPath=$env:B3_T;"
+              "$s.Arguments=$env:B3_A; $s.WorkingDirectory=$env:B3_W; $s.IconLocation=$env:B3_I;"
+              "$s.Description='Bayonetta 3 recomp launcher'; $s.Save(); Write-Output $l")
+    env = dict(os.environ, B3_T=str(pythonw), B3_A='"' + str(root / 'tools' / 'b3_launcher.py') + '"',
+               B3_W=str(root), B3_I=str(icon))
+    r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script], env=env,
+                       capture_output=True, text=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    if r.returncode != 0 or not r.stdout.strip():
+        raise OSError((r.stderr or r.stdout).strip() or 'PowerShell could not create the shortcut')
+    return Path(r.stdout.strip())
+
+
 def install_state(root, host=None):
     """What the launcher's status line reports: is the game built, is the data there, is a settings file present."""
     p = paths(root, host)

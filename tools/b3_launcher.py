@@ -701,6 +701,8 @@ class Launcher(tk.Tk):
             button = Button(self.canvas, text, command, look=look)
             self.mod_actions.append((button, self.canvas.create_window(0, 0, window=button, anchor='e',
                                                                        state='hidden')))
+        self.shortcut_button = Button(self.canvas, 'Desktop shortcut', self._make_shortcut, look='ghost')
+        self.shortcut_item = self.canvas.create_window(0, 0, window=self.shortcut_button, anchor='e', state='hidden')
 
     def _widget(self, setting):
         if setting.kind == 'bool':
@@ -733,7 +735,8 @@ class Launcher(tk.Tk):
         for item in list(self.windows.values()) + [m[4] for m in self.mods] + [m[i] for m in self.mods
                                                                                 for i in (6, 8)]:
             c.itemconfigure(item, state='hidden')
-        for item in (self.save_item, self.reset_item, self.log_item) + tuple(i for _b, i in self.mod_actions):
+        for item in ((self.save_item, self.reset_item, self.log_item, self.shortcut_item)
+                     + tuple(i for _b, i in self.mod_actions)):
             c.itemconfigure(item, state='hidden')
         if self.view == 'home':
             self._layout_home(w, h)
@@ -868,7 +871,8 @@ class Launcher(tk.Tk):
         self.status_item = self._text(x1 + px(32), y2 - px(28), self.status_text, (UI, 9),
                                       RED if self.status_bad else FAINT)
         actions = (self.mod_actions if self.group == 'mods'
-                   else [(self.save_button, self.save_item), (self.reset_button, self.reset_item)])
+                   else [(self.save_button, self.save_item), (self.reset_button, self.reset_item)]
+                   + ([(self.shortcut_button, self.shortcut_item)] if self.group == 'system' else []))
         c.update_idletasks()
         right = x2 - px(32)
         for button, item in actions:
@@ -974,6 +978,13 @@ class Launcher(tk.Tk):
 
     def _add_mod_folder(self):
         self._add_mod(filedialog.askdirectory(parent=self, title="A mod's folder (its romfs/ or the folder above it)"))
+
+    def _make_shortcut(self):
+        try:
+            written = cfg.make_shortcut(self.root)
+            self._set_status('Shortcut: ' + ', '.join(self._short(p) for p in written))
+        except OSError as e:
+            self._set_status(f'Could not make the shortcut: {e}', bad=True)
 
     def _open_mods(self):
         folder = cfg.mods_dir(self.root)

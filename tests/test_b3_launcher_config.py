@@ -420,6 +420,24 @@ def test_mods_order_add_and_layouts():
         check(not (mods / 'loose').exists(), 'remove_mod deletes the folder')
 
 
+def test_linux_shortcut():
+    with tempfile.TemporaryDirectory(prefix='b3-sc-') as tmp:
+        home, root = Path(tmp) / 'home', Path(tmp) / 'Bayonetta3Recomp'
+        (home / 'Desktop').mkdir(parents=True)
+        root.mkdir()
+        (root / 'Bayonetta3Recomp.sh').write_text('#!/bin/sh\n', encoding='utf-8')
+        saved = os.environ.pop('XDG_DATA_HOME', None)
+        try:
+            written = cfg.make_shortcut(root, host='linux', home=home)
+        finally:
+            if saved is not None:
+                os.environ['XDG_DATA_HOME'] = saved
+        eq([p.name for p in written], ['bayonetta3-recomp.desktop', 'Bayonetta 3.desktop'], 'menu and desktop')
+        text = written[0].read_text(encoding='utf-8')
+        check(f'Exec="{root / "Bayonetta3Recomp.sh"}"' in text, f'a release entry opens its launcher script: {text}')
+        check('Categories=Game;' in text and 'Terminal=false' in text, 'a game entry without a terminal')
+
+
 def test_reset_keeps_comments():
     conf = cfg.Conf.parse('# a\nresolution=1600x900\npad_swap=1\n# b\n')
     cfg.reset_to_defaults(conf)
