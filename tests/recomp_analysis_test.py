@@ -100,4 +100,39 @@ assert len(targets("b.eq #0x2400")) == 34, len(targets("b.eq #0x2400"))
 assert bound(cmp_and_bound=(("cmp", "w23, #0x10d"), ("b.hi", "#0x2400"))) is None
 assert bound(cmp_and_bound=(("cmp", "w22, #0x10"), ("b.hi", "#0x2400"))) == 0x11
 
-print("recomp/analysis.py: a flags-free branch between cmp and b.hi keeps the 270-entry bound")
+# Bayonetta 3's main+c7d40: the table register is written twice in the function, and the write that is last in
+# address order (another switch's table) is not the one on this switch's path. Both tables are in .rodata and every
+# entry of the wrong one is an instruction, so the wrong one used to be taken alone.
+def two_tables():
+    img = Image()
+    right, wrong = TABLE + 0x100, TABLE + 0x180
+    for k in range(8):
+        img.image[right + k] = 40 + k   # the targets of the real table: ANCHOR + 4 * (40..47)
+        img.image[wrong + k] = k        # another switch's: ANCHOR + 4 * (0..7)
+    insns = {
+        0x1000: ("adrp", "x26, #0x3000"),
+        0x1004: ("add", "x26, x26, #0x100"),      # this switch's table, set early
+        0x1008: ("b", "#0x1100"),
+        0x1080: ("adrp", "x26, #0x3000"),
+        0x1084: ("add", "x26, x26, #0x180"),      # the other switch's, later in address order
+        0x1088: ("b", "#0x2400"),                  # ...on a path that does not reach this switch
+        0x1100: ("cmp", "w22, #7"),
+        0x1104: ("b.hi", "#0x2400"),
+        0x1108: ("adr", "x9, #0x2000"),
+        0x110C: ("mov", "w8, w22"),
+        0x1110: ("ldrb", "w10, [x26, x8]"),
+        0x1114: ("add", "x9, x9, x10, lsl #2"),
+        0x1118: ("br", "x9"),
+    }
+    for v in range(48):
+        insns[ANCHOR + 4 * v] = ("nop", "")
+    return _jump_table(Analysis(img, insns), Function(F_START, F_END), 0x1118)
+
+
+tg = two_tables()
+assert tg is not None
+assert all(ANCHOR + 4 * v in tg for v in range(40, 48)), "the real table's targets are missing"
+assert not any(ANCHOR + 4 * v in tg for v in range(8)), "the other switch's table does not reach this load"
+
+print("recomp/analysis.py: a flags-free branch between cmp and b.hi keeps the 270-entry bound; "
+      "a table register written twice takes the definition that reaches the load")

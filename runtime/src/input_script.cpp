@@ -1,6 +1,7 @@
 // Scripted input for unattended runs: NX_INPUT_SCRIPT="<seconds>:<button>:<hold seconds>;..." presses buttons at
 // fixed times after the first pad read, e.g. "70:A:0.2;74:A:0.2;80:RIGHT:5" (buttons: A B X Y L R ZL ZR PLUS MINUS
-// LEFT RIGHT UP DOWN; the directions also push the left stick). Added on top of the real pad and keyboard.
+// LEFT RIGHT UP DOWN; the directions also push the left stick, and LEFT@20 tilts only the stick, 20% of the way).
+// Added on top of the real pad and keyboard.
 //
 // NX_INPUT_RECORD=1 (or a file path): what the player does is written in that same format, to
 // <data root>/input_record.txt: every press of a button, and the stick past half way as a direction, from the first
@@ -50,9 +51,19 @@ std::vector<Press> parse(const char* s) {
         p.at = std::atof(item.substr(0, a).c_str());
         p.hold = std::atof(item.substr(b + 1).c_str());
         std::string button = item.substr(a + 1, b - a - 1);
+        // A direction with "@<percent>" (LEFT@20) only tilts the left stick that far, without the d-pad bit: fine aim.
+        int percent = 0;
+        if (size_t at = button.find('@'); at != std::string::npos) {
+            percent = std::clamp(std::atoi(button.c_str() + at + 1), 1, 100);
+            button.resize(at);
+        }
         for (const Name& n : names)
             if (button == n.name) p.bits = n.bits, p.lx = n.lx, p.ly = n.ly;
-        if (p.bits) v.push_back(p);
+        if (percent && (p.lx || p.ly)) {
+            p.bits = 0;
+            p.lx = p.lx * percent / 100, p.ly = p.ly * percent / 100;
+        }
+        if (p.bits || p.lx || p.ly) v.push_back(p);
     }
     return v;
 }

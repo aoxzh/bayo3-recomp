@@ -230,6 +230,68 @@ def _find_def(an, f, before, reg):
     return None
 
 
+_UNCOND = ("b", "br", "ret", "retaa", "retab", "braa", "brab", "braaz", "brabz")
+_COND_PREFIX = ("b.", "cbz", "cbnz", "tbz", "tbnz")
+
+
+def _preds(an, f):
+    """Predecessors of each instruction of f (direct branches, fall-through, known jump-table edges); cached."""
+    cache = an.__dict__.setdefault("_pred_cache", {})
+    if f.start in cache:
+        return cache[f.start]
+    preds = {}
+    a = f.start
+    while a < f.end:
+        mn, op = an.insns.get(a, ("", ""))
+        succ = []
+        if not mn:  # no instruction here (data, padding): nothing flows on from it
+            a += 4
+            continue
+        if mn == "b" or mn.startswith(_COND_PREFIX):
+            mt = IMM.search(op.split(",")[-1])
+            if mt:
+                succ.append(_imm(mt.group(1)))
+        if mn in ("br",):
+            succ.extend(an.jump_tables.get(a, ()))
+        if mn not in _UNCOND:
+            succ.append(a + 4)
+        for s in succ:
+            if f.start <= s < f.end:
+                preds.setdefault(s, []).append(a)
+        a += 4
+    cache[f.start] = preds
+    return preds
+
+
+def _writes(an, a, reg):
+    mn, op = an.insns.get(a, ("", ""))
+    if not mn or mn in NO_DEST:
+        return False
+    ops = _ops(op)
+    return bool(ops) and (_regno(ops[0]) == reg or (mn in ("ldp", "ldpsw") and len(ops) > 1 and _regno(ops[1]) == reg))
+
+
+def _reaching_defs(an, f, before, reg, limit=20000):
+    """Addresses of the writes of `reg` that reach `before` along some path inside f (None past `limit` steps)."""
+    preds = _preds(an, f)
+    defs, seen, work = set(), {before}, [before]
+    steps = 0
+    while work:
+        a = work.pop()
+        for p in preds.get(a, ()):
+            if p in seen:
+                continue
+            seen.add(p)
+            steps += 1
+            if steps > limit:
+                return None
+            if _writes(an, p, reg):
+                defs.add(p)
+            else:
+                work.append(p)
+    return defs
+
+
 def _const(an, f, before, reg, depth=0):
     """Constant value of `reg` at `before` if it comes from adrp[+add] / adr / mov."""
     d = _find_def(an, f, before, reg)
@@ -318,13 +380,32 @@ def _jump_table(an, f, br):
         return out, misses
 
     table = _const(an, f, a_ld, base_reg)
+    direct = set()
     if table is not None and _in_table_data(m, table):
         out, _ = entries(table)
-        return sorted(set(out)) if out else None
-    # The base register's last definition in address order is not a constant (control flow reaches the load from
-    # another path: Wonder's main+28b3bc takes x24 from an adrp/add 0x5000 bytes earlier, the linear search found an
-    # unrelated movk). With a known bound, try every constant the function puts in that register and keep one whose
-    # entries all land on instructions of this function.
+        direct = set(out)
+        if count is None:
+            return sorted(direct) if direct else None
+    # With a bound, the tables are those of the writes of the base register that reach the load through the control
+    # flow (each written by adrp/add or adr), not only the last write in address order.
+    reach = _reaching_defs(an, f, a_ld, base_reg)
+    if reach:
+        tables = {_const(an, f, d + 4, base_reg) for d in reach}
+        if None not in tables and all(_in_table_data(m, t) for t in tables):
+            found = set()
+            for t in tables:
+                found.update(entries(t)[0])
+            return sorted(found) if found else None
+    if direct:
+        return sorted(direct)
+    # The base register's last definition in address order need not be the one that reaches the load:
+    #  - it is not a constant (Wonder's main+28b3bc takes x24 from an adrp/add 0x5000 bytes earlier, the linear search
+    #    found an unrelated movk);
+    #  - it is another switch's table (Bayonetta 3's main+c7d40: x26 = 0x1821d60 at c7b50 is the last write in address
+    #    order, but the path to this switch set x26 = 0x1821d78 at c7830; every entry of the wrong table happened to be
+    #    an instruction of the function, so it was taken, and index 2 became a call into the middle at main+c7d4c).
+    # With a known bound, every constant the function puts in that register is tried as well, and the targets of all of
+    # them are kept.
     if count is None:
         return None
     candidates = []
