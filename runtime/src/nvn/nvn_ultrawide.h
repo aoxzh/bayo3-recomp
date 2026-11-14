@@ -15,6 +15,7 @@ struct Texture;
 
 float uw_factor();                        // k > 1 when on, 1 when off (decided once)
 inline bool uw_on() { return uw_factor() > 1.0f; }
+bool uw_frag_on();                        // gl_FragCoord.x / k in widened passes (NX_UW_FRAG=0 turns it off)
 uint32_t uw_widen(uint32_t w);            // the widened width of a 16:9-chain size
 bool uw_widen_texture(Texture& t);        // a screen-sized render target: width widened, t.uw set
 bool uw_crop(int32_t crop[4]);            // nvnWindowSetCrop's rect widened when it is the whole 16:9 picture
@@ -29,5 +30,8 @@ bool uw_is_ui_vertex_shader(const ShaderInfo* vs);
 bool uw_vs_scaled(const ShaderInfo* vs);  // does this vertex shader's x get scaled by 1/k (world and UI geometry)
 // A copy of a vertex module whose gl_Position.x is multiplied by specialization constant 0 (default 1.0).
 bool patch_x_scale(const std::vector<uint32_t>& in, std::vector<uint32_t>& out);
+// A copy of a fragment module whose every read of gl_FragCoord.x is multiplied by specialization constant 0 (default
+// 1.0; 1/k in passes into widened targets). False when the module does not read gl_FragCoord.
+bool patch_fragcoord_x(const std::vector<uint32_t>& in, std::vector<uint32_t>& out);
 
 }  // namespace nx::nvn

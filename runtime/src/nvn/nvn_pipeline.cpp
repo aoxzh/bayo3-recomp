@@ -151,6 +151,10 @@ VkShaderModule module_of(const ShaderInfo* s, const uint8_t* kinds = nullptr, ui
             if (patch_x_scale(code, scaled)) code.swap(scaled);
             else log("nvn/vk: shader %s: ultrawide x scale not patched", s->hash.c_str());
         }
+        if (s->stage == ShaderStage::Fragment && uw_on() && uw_frag_on()) {  // NX_ULTRAWIDE: gl_FragCoord.x * constant 0
+            std::vector<uint32_t> scaled;
+            if (patch_fragcoord_x(code, scaled)) code.swap(scaled);
+        }
         if (position_stage && final_position && !clip_z_module(s, code, depth_mode))
             fatal("nvn/vk: shader %s cannot implement depth mode %u", s->hash.c_str(), depth_mode);
         if (const char* opt = std::getenv("NX_SPIRV_OPT"); opt || std::getenv("NX_SPIRV_TOOL")) {  // diagnostic: each module through `spirv-opt <flags>` (NX_SPIRV_OPT) or `<tool> in out` (NX_SPIRV_TOOL) first
@@ -408,6 +412,8 @@ struct PipeBuild {
     VkPipelineShaderStageCreateInfo stages[4]{};
     VkSpecializationInfo spec_info{};
     float uw_x_value = 1.0f;
+    VkSpecializationInfo fs_spec_info{};
+    float uw_fx_value = 1.0f;
     uint32_t nstages = 0;
     std::vector<VkVertexInputAttributeDescription> attrs;
     std::vector<VkVertexInputBindingDescription> binds;
@@ -1032,6 +1038,14 @@ std::unique_ptr<PipeBuild> prepare_graphics_pipeline(const PipelineKey& key, con
             spec_info = {1, &entry, sizeof(float), &uw_x_value};
             uw_x_value = key.uw_x;
             st.pSpecializationInfo = &spec_info;
+        }
+        // NX_ULTRAWIDE: uw_x > 0 marks a draw into a widened target (1.0 unsqueezed, 1/k squeezed); its fragment
+        // module sees gl_FragCoord.x / k (constant 0 of the patched fragment module).
+        if (s == key.fs && key.uw_x > 0 && uw_frag_on()) {
+            static VkSpecializationMapEntry entry{0, 0, sizeof(float)};
+            B.fs_spec_info = {1, &entry, sizeof(float), &B.uw_fx_value};
+            B.uw_fx_value = 1.0f / uw_factor();
+            st.pSpecializationInfo = &B.fs_spec_info;
         }
     }
 

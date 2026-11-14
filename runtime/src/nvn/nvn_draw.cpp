@@ -717,6 +717,47 @@ bool draw(VkCommandBuffer cb, const Targets& t, uint32_t mode, bool indexed, con
             }
         }
     }
+    if (uw_on()) {  // NX_UW_STUDY: draws that touch a screen-chain-sized 16:9 texture that stayed 16:9, once per pair
+        static const bool study = std::getenv("NX_UW_STUDY") != nullptr;
+        auto kept = [](const Texture* st) {
+            return st && !st->uw && st->width >= 320 && st->target == 1 &&
+                   std::fabs(double(st->width) / st->height - 16.0 / 9.0) < 0.06;
+        };
+        if (study) {
+            std::string what;
+            for (const ResolvedTexture& r : g_textures.resolved)
+                if (const Texture* st = r.texture ? get<Texture>(r.texture) : nullptr; kept(st)) {
+                    char b[64];
+                    std::snprintf(b, sizeof b, " reads %ux%u/f%x/fmt%x", st->width, st->height, st->flags, st->format);
+                    what += b;
+                }
+            const Texture* ct = t.color_count && t.colors[0] ? get<Texture>(t.colors[0]) : nullptr;
+            if (kept(ct)) {
+                char b[64];
+                std::snprintf(b, sizeof b, " into %ux%u/f%x/fmt%x", ct->width, ct->height, ct->flags, ct->format);
+                what += b;
+            }
+            // NX_UW_STUDY=2: also every unsqueezed full-screen pass (at most 6 vertices) into a widened target
+            static const bool all = std::getenv("NX_UW_STUDY")[0] == '2';
+            const uint64_t cnt = indexed ? uint64_t(c.i[0]) : uint64_t(c.i[1]);
+            if (all && what.empty() && g_uw_wide && !(key.uw_x > 0.0f) && cnt <= 6) {
+                for (const ResolvedTexture& r : g_textures.resolved)
+                    if (const Texture* st = r.texture ? get<Texture>(r.texture) : nullptr) {
+                        char b[64];
+                        std::snprintf(b, sizeof b, " %ux%u%s/f%x/fmt%x", st->width, st->height, st->uw ? "w" : "",
+                                      st->flags, st->format);
+                        what += b;
+                    }
+                if (what.empty()) what = " (no textures)";
+            }
+            static std::set<std::pair<const ShaderInfo*, const ShaderInfo*>> seen;
+            if (!what.empty() && seen.insert({vs, fs}).second)
+                log("nvn: ultrawide: kept-16:9 draw vs %s fs %s wide %d squeezed %d count %llu vp %d,%d %dx%d%s",
+                    vs->hash.c_str(), fs ? fs->hash.c_str() : "-", int(g_uw_wide), int(key.uw_x > 0.0f),
+                    (unsigned long long)(indexed ? uint64_t(c.i[0]) : uint64_t(c.i[1])), g_state.viewport[0],
+                    g_state.viewport[1], g_state.viewport[2], g_state.viewport[3], what.c_str());
+        }
+    }
     if (uw_on()) {  // NX_UW_TRACE=<first draw>:<count>: draws (wide = a widened target)
         static const char* e = std::getenv("NX_UW_TRACE");
         static uint64_t from = 0, n = 0;
@@ -747,6 +788,9 @@ bool draw(VkCommandBuffer cb, const Targets& t, uint32_t mode, bool indexed, con
                 g_state.viewport[0], g_state.viewport[1], g_state.viewport[2], g_state.viewport[3]);
         }
     }
+    // NX_ULTRAWIDE: an unsqueezed draw into a widened target still marks the key (vertex scale 1.0, the module's own
+    // default), so the fragment stage gets gl_FragCoord.x / k (nvn_pipeline.cpp, patch_fragcoord_x).
+    if (g_uw_wide && uw_frag_on() && !(key.uw_x > 0.0f)) key.uw_x = 1.0f;
     VkPipeline pipeline;
     {
         PhaseScope p(kPPipeline);  // the canonical key lookup, the cache probe, a pending compile

@@ -54,6 +54,11 @@ float uw_factor() {
     return k;
 }
 
+bool uw_frag_on() {
+    static const bool on = !(std::getenv("NX_UW_FRAG") && std::getenv("NX_UW_FRAG")[0] == '0');
+    return on;
+}
+
 uint32_t uw_widen(uint32_t w) {
     uint32_t v = uint32_t(std::lround(double(w) * uw_factor()));
     return v & ~1u;
@@ -351,6 +356,77 @@ bool patch_x_scale(const std::vector<uint32_t>& in, std::vector<uint32_t>& out) 
         out.insert(out.end(), w, w + n.len);
     }
     if (!returns) return false;
+    out[3] = bound;
+    return true;
+}
+
+// ---- gl_FragCoord.x * spec constant -----------------------------------------------------------------------------
+// The game turns pixel positions into texture coordinates with its own 16:9 width (uv = FragCoord.x / 1280 in a
+// post pass): in a widened target that runs past 1 at the 16:9 edge and the clamped sampler smears the last column
+// over the rest. Every read of gl_FragCoord.x is multiplied by specialization constant 0 (default 1.0; 1/k in passes
+// into widened targets), so the shader sees the pixel positions of the game's own picture.
+bool patch_fragcoord_x(const std::vector<uint32_t>& in, std::vector<uint32_t>& out) {
+    constexpr uint32_t BuiltInFragCoord = 15, StorageInput = 1, ModelFragment = 4;
+    if (in.size() < 5) return false;
+    struct Inst { size_t at; uint32_t op, len; };
+    std::vector<Inst> insts;
+    for (size_t i = 5; i < in.size();) {
+        uint32_t len = in[i] >> 16;
+        if (!len || i + len > in.size()) return false;
+        insts.push_back({i, in[i] & 0xffff, len});
+        i += len;
+    }
+    uint32_t bound = in[3], f32 = 0, v4f = 0, fragcoord = 0;
+    bool fragment = false;
+    std::set<uint32_t> zeros;  // integer constants 0
+    size_t first_function = in.size(), first_type = in.size();
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if (first_type == in.size() && !is_header_op(n.op)) first_type = n.at;
+        if (n.op == OpEntryPoint && n.len >= 3 && w[1] == ModelFragment) fragment = true;
+        else if (n.op == OpDecorate && n.len >= 4 && w[2] == DecorationBuiltIn && w[3] == BuiltInFragCoord) fragcoord = w[1];
+        else if (n.op == OpTypeFloat && n.len == 3 && w[2] == 32) f32 = w[1];
+        else if (n.op == OpTypeVector && n.len == 4 && w[2] == f32 && w[3] == 4) v4f = w[1];
+        else if (n.op == OpConstant && n.len == 4 && w[3] == 0) zeros.insert(w[2]);
+        else if (n.op == OpFunction && first_function == in.size()) first_function = n.at;
+    }
+    if (!fragment || !fragcoord || !f32 || !v4f || first_type == in.size() || first_function == in.size()) return false;
+    // Pointers to gl_FragCoord.x, and loads through them or of the whole vector.
+    std::set<uint32_t> x_ptrs;
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if (n.op == OpAccessChain && n.len == 5 && w[3] == fragcoord && zeros.count(w[4])) x_ptrs.insert(w[2]);
+    }
+    uint32_t spec = bound++;
+    out.assign(in.begin(), in.begin() + 5);
+    int patched = 0;
+    for (const Inst& n : insts) {
+        const uint32_t* w = &in[n.at];
+        if (n.at == first_type) out.insert(out.end(), {(4u << 16) | OpDecorate, spec, DecorationSpecId, 0u});
+        if (n.at == first_function) out.insert(out.end(), {(4u << 16) | OpSpecConstant, f32, spec, 0x3f800000u});
+        if (n.op == OpLoad && n.len >= 4 && x_ptrs.count(w[3]) && w[1] == f32) {
+            // %r = OpLoad %float %p  ->  %t = OpLoad %float %p; %r = OpFMul %float %t %spec
+            uint32_t t = bound++;
+            out.insert(out.end(), {(n.len << 16) | OpLoad, w[1], t});
+            out.insert(out.end(), w + 3, w + n.len);
+            out.insert(out.end(), {(5u << 16) | OpFMul, f32, w[2], t, spec});
+            patched++;
+            continue;
+        }
+        if (n.op == OpLoad && n.len >= 4 && w[3] == fragcoord && w[1] == v4f) {
+            // the whole vector: x replaced by x * spec
+            uint32_t t = bound++, x = bound++, m = bound++;
+            out.insert(out.end(), {(n.len << 16) | OpLoad, w[1], t});
+            out.insert(out.end(), w + 3, w + n.len);
+            out.insert(out.end(), {(5u << 16) | OpCompositeExtract, f32, x, t, 0});
+            out.insert(out.end(), {(5u << 16) | OpFMul, f32, m, x, spec});
+            out.insert(out.end(), {(6u << 16) | OpCompositeInsert, v4f, w[2], m, t, 0});
+            patched++;
+            continue;
+        }
+        out.insert(out.end(), w, w + n.len);
+    }
+    if (!patched) return false;
     out[3] = bound;
     return true;
 }
