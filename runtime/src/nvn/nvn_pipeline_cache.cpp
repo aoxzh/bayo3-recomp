@@ -258,6 +258,8 @@ void pipeline_cache_flush() {
 void note_pipeline_alias() { g_alias++; }
 void note_module_created(uint64_t ns) { g_modules++, g_module_ns += ns; }
 void note_astc_decoded(uint64_t ns) { g_astc++, g_astc_ns += ns; }
+std::atomic<uint64_t> g_images{0}, g_image_ns{0};
+void note_image_created(uint64_t ns) { g_images++, g_image_ns += ns; }
 
 // One line per timing window (nvn_vk.cpp log_timing): what the replay created, and the time it took.
 void creation_log(uint64_t frames) {
@@ -272,6 +274,10 @@ void creation_log(uint64_t frames) {
     if (g_alias || g_modules)
         log("nvn/vk: over %llu frames: %llu raw keys shared an existing pipeline, %llu shader modules (%.1f ms)",
             (unsigned long long)frames, (unsigned long long)g_alias, (unsigned long long)g_modules, double(g_module_ns) / 1e6);
+    if (g_images)  // render-size changes show here: a size seen before reuses its images
+        log("nvn/vk: over %llu frames: %llu images created (%.1f ms)", (unsigned long long)frames,
+            (unsigned long long)g_images.load(), double(g_image_ns.load()) / 1e6);
+    g_images = 0, g_image_ns = 0;
     g_alias = g_modules = g_module_ns = 0;
     if (g_prewarmed || g_skipped || g_waited || g_worker_pipelines)
         log("nvn/vk: over %llu frames: %llu pipelines sent to workers, %llu compiled there (%.1f ms), the replay waited for %llu (%.1f ms), %llu draws skipped",

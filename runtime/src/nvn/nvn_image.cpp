@@ -198,6 +198,7 @@ GpuImage* image_of(uint64_t guest) {
     }
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     if (!image_supported(ci, t->format)) return nullptr;
+    const uint64_t create_t0 = plat::monotonic_ns();
     if (!check(p_vkCreateImage(vk_device(), &ci, nullptr, &img->image), "vkCreateImage")) return nullptr;
     VkMemoryRequirements req{};
     p_vkGetImageMemoryRequirements(vk_device(), img->image, &req);
@@ -217,6 +218,7 @@ GpuImage* image_of(uint64_t guest) {
     vi.subresourceRange = {aspect == 3 ? VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT) : img->aspect, 0, img->levels, 0,
                            img->layers};
     check(p_vkCreateImageView(vk_device(), &vi, nullptr, &img->view), "vkCreateImageView");
+    note_image_created(plat::monotonic_ns() - create_t0);
     static uint64_t created = 0;
     if (g_trace || ++created % 1000 == 0)  // a sample of what keeps being created
         log("nvn/vk: image %llu for texture %llx (memory %llx): %ux%u x%u layers, %u levels, target %u format %#x -> %d",

@@ -170,9 +170,10 @@ file lists the inputs, the key names and the defaults. F11 or Alt+Enter toggles 
 
 **Ultrawide** (launcher Advanced tab, `ultrawide=1`, or `NX_ULTRAWIDE=2560x1080` / `21:9` for a set shape): on a
 display wider than 16:9 the game's screen-sized render targets are widened, its cameras keep their vertical field of
-view and show more to the sides (Hor+), and menus, text and the HUD keep their shape in the middle. Checked headless at
-21:9 on the title, a realtime cutscene and the pause menu; the darkened scene behind some menus still ends at the 16:9
-edges. `NX_UW_STUDY=1` logs every draw that is kept at 16:9, with what it reads.
+view and show more to the sides (Hor+), and menus, text and the HUD keep their shape in the middle. Pre-rendered
+movies (the `movie/*.webm` cutscenes) keep 16:9 with black bars at the sides. Checked headless at 21:9 on the title, the
+opening movie and the pause menu over it; gameplay at 21:9 is not checked yet. `NX_UW_STUDY=1` logs every draw that is
+kept at 16:9, with what it reads.
 
 **F1** (or + and − together on a controller) opens the settings panel over the game: window mode, resolution, frame
 rate, v-sync, anisotropic filtering, FSR, model detail, film grain, controller layout, the mouse camera and sound. The arrows or

@@ -671,6 +671,7 @@ bool draw(VkCommandBuffer cb, const Targets& t, uint32_t mode, bool indexed, con
     // are the "UI" ones, and a UI quad into a widened target that does not sample a widened texture is squeezed.
     // NX_UW_CAMERA=0 (no camera patch): every geometry draw is squeezed, a world-and-UI shrink.
     static const bool cam_patch = !(std::getenv("NX_UW_CAMERA") && std::getenv("NX_UW_CAMERA")[0] == '0');
+    bool movie_bars = false;  // NX_ULTRAWIDE: a pillarboxed movie frame; the sides are cleared to black
     if (uw_on() && cam_patch && !g_uw_wide && t.color_count && t.colors[0]) {
         const Texture* lt = get<Texture>(t.colors[0]);
         if (lt && lt->format == 0x25 && (lt->flags & 8)) uw_ui_vertex_shader(vs);
@@ -682,9 +683,9 @@ bool draw(VkCommandBuffer cb, const Targets& t, uint32_t mode, bool indexed, con
         // Screen-space passes already cover the widened target and are not squeezed:
         //  - a draw that samples a widened render target (post chain, composite; not only quads: Bayonetta 3's
         //    cutscene pass vs 816d58b527bd2647 is a 72-vertex grid);
-        //  - a draw that samples a screen-sized 16:9 texture the game writes itself (uncompressed, kept at 16:9 because
-        //    it is a shader image: the cutscene composite vs 4536c875d19c72fd reads 1600x900 R8 and 800x450 ones);
         //  - an untextured quad (the pause menu's full-screen dimming, vs b33eeeca18fbc8cd).
+        // A movie frame (a quad reading a screen-sized 16:9 Y plane, R8, and its half-size UV plane: vs
+        // 4536c875d19c72fd, 1600x900 + 800x450) stays squeezed, pillarboxed, with the bars cleared to black below.
         bool samples_wide = false;
         const uint64_t count = indexed ? uint64_t(c.i[0]) : uint64_t(c.i[1]);
         bool any_texture = false;
@@ -692,11 +693,12 @@ bool draw(VkCommandBuffer cb, const Targets& t, uint32_t mode, bool indexed, con
             if (!r.texture) continue;
             any_texture = true;
             if (GpuImage* si = image_of(r.texture); si && si->uw) samples_wide = true;
-            if (const Texture* st = get<Texture>(r.texture); st && st->width >= 640 && st->format < 0x42 &&
+            if (const Texture* st = get<Texture>(r.texture); st && count <= 6 && st->width >= 640 && st->format == 0x1 &&
                                                              std::fabs(double(st->width) / st->height - 16.0 / 9.0) < 0.06)
-                samples_wide = true;
+                movie_bars = true;
         }
         if (!any_texture && count <= 6) samples_wide = true;
+        if (samples_wide) movie_bars = false;
         if (!samples_wide) key.uw_x = 1.0f / uw_factor();
         static const bool study = std::getenv("NX_UW_STUDY") != nullptr;
         if (study && !samples_wide) {  // NX_UW_STUDY: each squeezed vertex shader once, with what it reads
@@ -804,6 +806,18 @@ bool draw(VkCommandBuffer cb, const Targets& t, uint32_t mode, bool indexed, con
     }
 
     if (!is_indirect) trace_skin(indexed, c, vs, fs);
+    if (movie_bars && key.uw_x > 0.0f && t.color_count && vp.width > 0) {
+        // The squeezed frame covers the middle 1/k of the widened viewport; the rest held stale pixels.
+        const float frame_w = vp.width * key.uw_x, side = (vp.width - frame_w) * 0.5f;
+        const int32_t y0 = int32_t(std::min(vp.y, vp.y + vp.height)), h = int32_t(std::fabs(vp.height));
+        VkClearAttachment a{VK_IMAGE_ASPECT_COLOR_BIT, 0, {}};
+        a.clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+        VkClearRect bars[2] = {
+            {{{int32_t(vp.x), y0}, {uint32_t(side), uint32_t(h)}}, 0, 1},
+            {{{int32_t(vp.x + side + frame_w), y0}, {uint32_t(side), uint32_t(h)}}, 0, 1},
+        };
+        if (side >= 1.0f && h > 0) p_vkCmdClearAttachments(cb, 1, &a, 2, bars);
+    }
     // NX_REPLAY_CUTS=barrier: last point before the draw command; only a marker left by an in-pass merge copy is still
     // pending here (a composed read ends the pass and is normally flushed before it).
     {

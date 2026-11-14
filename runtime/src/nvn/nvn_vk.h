@@ -139,6 +139,7 @@ void note_pipeline_waited(uint64_t ns);   // the replay waited this long for a c
 void note_pipeline_skipped();             // a draw skipped because its pipeline compiles (NX_ASYNC_PIPELINES)
 void note_pipeline_prewarmed();           // a pipeline of an earlier session sent to a worker
 void note_astc_decoded(uint64_t ns);
+void note_image_created(uint64_t ns);  // a new VkImage (nvn_image.cpp), for the per-window creation line
 void creation_log(uint64_t frames);
 Upload upload(const void* data, uint64_t size, uint64_t align);
 
