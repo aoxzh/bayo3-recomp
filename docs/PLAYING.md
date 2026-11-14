@@ -180,7 +180,8 @@ rate, v-sync, anisotropic filtering, FSR, model detail, film grain, controller l
 the d-pad choose and change, Esc or B closes; the game is paused while it is open. Changes are saved to
 `private/b3.conf`; window mode, model detail, film grain and the mouse apply at once, the others say "(next start)". Model detail
 `Highest` (`model_lod=highest`) keeps every model with more than one level of detail at its finest at any distance. Film grain `Off` (`film_grain=off`) drops the grain the
-game lays over the picture, from the next scene on (the same field the community "No Film Grain" mod removes).
+game lays over the picture, from the next scene on (the same field the community "No Film Grain" mod removes). Only some of the game's
+scene looks use grain (about half of the look presets in `core/core.dat` set it to 1.5); the prologue uses none, so you see no change there.
 
 In the picture book's prologue, + offers to close the book; that returns to Bayonetta 3, where Continue goes back to
 the hub. For Discord Rich Presence, create an application at discord.com/developers (its name is what your friends

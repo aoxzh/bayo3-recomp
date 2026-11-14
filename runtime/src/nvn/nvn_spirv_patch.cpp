@@ -452,7 +452,7 @@ bool zero_vertex_outputs(const std::vector<uint32_t>& in, std::vector<uint32_t>&
 // shaders computing the same position can round differently when the driver contracts or reassociates them
 // differently; Vulkan guarantees equal results only for outputs decorated Invariant. NVIDIA's compiler happens to
 // agree, Mesa ANV (Intel) does not: the characters and the terrain stayed the pre-pass's black (0,0,0,1) on an Intel
-// UHD. Decorating every vertex shader's Position Invariant makes the two passes agree (experimental, NX_INVARIANT=1 turns it on).
+// UHD. Decorating every vertex shader's Position Invariant makes the two passes agree (on by default, NX_INVARIANT=0 off).
 bool make_position_invariant(const std::vector<uint32_t>& in, std::vector<uint32_t>& out) {
     constexpr uint32_t OpMemberDecorate = 72, DecorationBuiltIn = 11, DecorationInvariant = 18, BuiltInPosition = 0;
     if (in.size() < 5) return false;
@@ -552,8 +552,11 @@ std::vector<uint32_t> patched_spirv(const ShaderInfo* s, const uint8_t* kinds, u
     }();
     if (zero_outputs && s->stage == ShaderStage::Vertex && zero_vertex_outputs(code, next)) code.swap(next);
     static const bool invariant = [] {
-        const char* e = std::getenv("NX_INVARIANT");  // off by default: it did not change the Intel silhouettes
-        return e && std::atoi(e) != 0;
+        // On by default (NX_INVARIANT=0 turns it off). It did not change the Intel silhouettes, but Witch Time and
+        // B3-Express both fix the late-game Kraken goo (a black slab where a second pass misses the first pass's
+        // depth) with invariant positions, and it costs nothing measurable.
+        const char* e = std::getenv("NX_INVARIANT");
+        return !(e && e[0] == '0');
     }();
     if (invariant && s->stage == ShaderStage::Vertex && make_position_invariant(code, next)) code.swap(next);
     static const bool fc = [] {
