@@ -679,15 +679,41 @@ bool draw(VkCommandBuffer cb, const Targets& t, uint32_t mode, bool indexed, con
     static const bool ui_learn = std::getenv("NX_UW_UI") && std::string(std::getenv("NX_UW_UI")) == "learn";
     const bool ui_pick = !cam_patch || (ui_learn ? uw_is_ui_vertex_shader(vs) : !g_state.depth.depth_test);
     if (g_uw_wide && uw_vs_scaled(vs) && ui_pick) {
-        // A short draw (a triangle or a quad) that samples a widened render target is a screen-space pass (post
-        // chain, composite): it already covers the widened target.
+        // Screen-space passes already cover the widened target and are not squeezed:
+        //  - a draw that samples a widened render target (post chain, composite; not only quads: Bayonetta 3's
+        //    cutscene pass vs 816d58b527bd2647 is a 72-vertex grid);
+        //  - a draw that samples a screen-sized 16:9 texture the game writes itself (uncompressed, kept at 16:9 because
+        //    it is a shader image: the cutscene composite vs 4536c875d19c72fd reads 1600x900 R8 and 800x450 ones);
+        //  - an untextured quad (the pause menu's full-screen dimming, vs b33eeeca18fbc8cd).
         bool samples_wide = false;
         const uint64_t count = indexed ? uint64_t(c.i[0]) : uint64_t(c.i[1]);
-        if (count <= 6)
-            for (const ResolvedTexture& r : g_textures.resolved)
-                if (r.texture)
-                    if (GpuImage* si = image_of(r.texture); si && si->uw) samples_wide = true;
+        bool any_texture = false;
+        for (const ResolvedTexture& r : g_textures.resolved) {
+            if (!r.texture) continue;
+            any_texture = true;
+            if (GpuImage* si = image_of(r.texture); si && si->uw) samples_wide = true;
+            if (const Texture* st = get<Texture>(r.texture); st && st->width >= 640 && st->format < 0x42 &&
+                                                             std::fabs(double(st->width) / st->height - 16.0 / 9.0) < 0.06)
+                samples_wide = true;
+        }
+        if (!any_texture && count <= 6) samples_wide = true;
         if (!samples_wide) key.uw_x = 1.0f / uw_factor();
+        static const bool study = std::getenv("NX_UW_STUDY") != nullptr;
+        if (study && !samples_wide) {  // NX_UW_STUDY: each squeezed vertex shader once, with what it reads
+            static std::set<const ShaderInfo*> seen;
+            if (seen.insert(vs).second) {
+                std::string smp;
+                for (const ResolvedTexture& r : g_textures.resolved)
+                    if (const Texture* st = r.texture ? get<Texture>(r.texture) : nullptr) {
+                        char b[64];
+                        std::snprintf(b, sizeof b, " %ux%u/f%x/fmt%x", st->width, st->height, st->flags, st->format);
+                        smp += b;
+                    }
+                log("nvn: ultrawide: squeezed vs %s fs %s count %llu vp %d,%d %dx%d reads%s", vs->hash.c_str(),
+                    fs ? fs->hash.c_str() : "-", (unsigned long long)count, g_state.viewport[0], g_state.viewport[1],
+                    g_state.viewport[2], g_state.viewport[3], smp.c_str());
+            }
+        }
     }
     if (uw_on()) {  // NX_UW_TRACE=<first draw>:<count>: draws (wide = a widened target)
         static const char* e = std::getenv("NX_UW_TRACE");

@@ -229,6 +229,7 @@ struct Texture : Object {
     uint64_t pool = 0, offset = 0, storage_size = 0;
     uint64_t memory = 0, gpu = 0;
     bool uw = false;  // NX_ULTRAWIDE: a screen-sized render target whose width was widened (nvn_ultrawide.cpp)
+    uint32_t guest_width = 0;  // NX_ULTRAWIDE: the width the game built it with (what nvnTextureGetWidth returns)
     uint32_t block_height_gobs = 0;  // packaged (BNTX) textures carry their own; 0: the layout's default
     uint32_t block_depth_gobs = 1;  // packaged 3D volumes interleave depth slices within a block
     uint32_t row_alignment_gobs = 1;  // packaged source block-row pitch alignment
@@ -267,6 +268,7 @@ struct Window : Object {
     std::vector<uint64_t> textures;  // guest NVNtexture*
     int active = 0, next = 0, interval = 1;
     int32_t crop[4] = {};  // nvnWindowSetCrop: x, y, width, height of the texture shown (0 wide: all of it)
+    int32_t guest_crop[4] = {};  // what the game set (crop is widened under NX_ULTRAWIDE); nvnWindowGetCrop returns it
 };
 
 // ---- samplers and descriptor pools --------------------------------------------------------------------------------

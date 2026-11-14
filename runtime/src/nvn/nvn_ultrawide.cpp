@@ -61,13 +61,20 @@ uint32_t uw_widen(uint32_t w) {
 
 bool uw_widen_texture(Texture& t) {
     // Render targets (flags 8), the window textures (display, 1) and the scene colour (flags 0); not packaged assets (4).
-    if (!uw_on() || t.target != 1 || (t.flags & 4) || t.width < 16 || t.height < 9) return false;
+    if (!uw_on() || t.width < 16 || t.height < 9) return false;
     double r = double(t.width) / double(t.height);
     if (std::fabs(r - k169) / k169 > 0.03) return false;
     static std::map<std::string, int> seen;  // each distinct widened shape once, for the study log
     char key[64];
-    std::snprintf(key, sizeof key, "%ux%u f%x fmt%x", t.width, t.height, t.flags, t.format);
+    std::snprintf(key, sizeof key, "%ux%u f%x fmt%x t%u", t.width, t.height, t.flags, t.format, t.target);
+    // Bayonetta 3 builds its whole screen chain (the window textures included) with flags 0xfc/0xfd: bit 2 (4) set
+    // with bit 3 (8). Only 4 without 8 marks a texture that is not drawn into.
+    if (t.target != 1 || ((t.flags & 4) && !(t.flags & 8))) {
+        if (seen[key]++ == 0) log("nvn: ultrawide: keeping 16:9 %s", key);
+        return false;
+    }
     if (seen[key]++ == 0) log("nvn: ultrawide: widening %s", key);
+    t.guest_width = t.width;
     t.width = uw_widen(t.width);
     t.uw = true;
     return true;
@@ -135,6 +142,9 @@ void uw_scan(uint64_t present) {
 namespace {
 std::mutex g_cam_lock;
 std::vector<uint64_t> g_cams;  // addresses of the aspect floats
+// Bayonetta 3 keeps {.., near, far, aspect 16/9, tan(half horizontal fov), tan(half vertical fov), ..} (NX_UW_SCAN
+// in a cutscene: near 0.1, far 5000, 1.7778, 0.829, 0.466). The aspect and the horizontal tangent are both set.
+std::vector<uint64_t> g_tan_cams;
 
 void cam_scan() {
     const uint32_t far_bits = 0x447a0000u, fov_bits = 0x3f490fdbu, asp_bits = 0x3fe38e39u;
@@ -145,9 +155,20 @@ void cam_scan() {
         if (w[0] != far_bits) continue;
         if (w[1] == fov_bits && (w[2] == asp_bits)) found.push_back(a + 8);
     }
+    std::vector<uint64_t> tan_found;
+    for (uint64_t a = lo; a + 12 <= hi; a += 4) {
+        const uint32_t* w = reinterpret_cast<const uint32_t*>(a);
+        if (w[0] != asp_bits) continue;
+        float th, tv;
+        std::memcpy(&th, &w[1], 4), std::memcpy(&tv, &w[2], 4);
+        if (tv > 0.05f && tv < 4.0f && std::fabs(th / tv - float(k169)) < 0.002f) tan_found.push_back(a);
+    }
     std::lock_guard lk(g_cam_lock);
     for (uint64_t a : found)
         if (std::find(g_cams.begin(), g_cams.end(), a) == g_cams.end() && g_cams.size() < 8192) g_cams.push_back(a);
+    for (uint64_t a : tan_found)
+        if (std::find(g_tan_cams.begin(), g_tan_cams.end(), a) == g_tan_cams.end() && g_tan_cams.size() < 8192)
+            g_tan_cams.push_back(a);
 }
 }  // namespace
 
@@ -165,7 +186,8 @@ void uw_cameras(uint64_t present) {
                 static int logged = 0;
                 if (logged++ < 5) {
                     std::lock_guard lk(g_cam_lock);
-                    log("nvn: ultrawide: camera scan %.0f ms, %zu cameras", double(plat::monotonic_ns() - t0) / 1e6, g_cams.size());
+                    log("nvn: ultrawide: camera scan %.0f ms, %zu cameras (%zu with fov tangents)",
+                        double(plat::monotonic_ns() - t0) / 1e6, g_cams.size() + g_tan_cams.size(), g_tan_cams.size());
                 }
                 plat::sleep_ns(2'000'000'000ll);
             }
@@ -179,6 +201,16 @@ void uw_cameras(uint64_t present) {
     for (uint64_t a : g_cams) {
         auto* p = reinterpret_cast<volatile uint32_t*>(a);
         if (*p == asp_bits) *p = wide_bits;
+    }
+    for (uint64_t a : g_tan_cams) {  // Hor+: the vertical tangent kept, the horizontal one widened with the aspect
+        auto* p = reinterpret_cast<volatile float*>(a);
+        uint32_t bits;
+        const float asp = p[0];
+        std::memcpy(&bits, &asp, 4);
+        if (bits != asp_bits) continue;
+        const float tv = p[2];
+        if (!(tv > 0.05f && tv < 4.0f) || std::fabs(p[1] / tv - float(k169)) > 0.002f) continue;  // reused memory
+        p[0] = wide, p[1] = tv * wide;
     }
 }
 

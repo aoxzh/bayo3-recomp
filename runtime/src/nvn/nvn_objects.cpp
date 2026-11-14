@@ -691,7 +691,11 @@ void TextureFlushTexels(CPU&) {}  // coherent: the writes above are what matters
         auto* t = get<Texture>(c.x[0]);       \
         c.x[0] = t ? uint64_t(t->field) : 0;  \
     }
-NX_TEXTURE_GETTER(TextureGetWidth, width)
+// NX_ULTRAWIDE: the game sizes its viewports from this; the replay widens them itself (uw_span), so it sees its own.
+void TextureGetWidth(CPU& c) {
+    auto* t = get<Texture>(c.x[0]);
+    c.x[0] = t ? uint64_t(t->uw && t->guest_width ? t->guest_width : t->width) : 0;
+}
 NX_TEXTURE_GETTER(TextureGetHeight, height)
 NX_TEXTURE_GETTER(TextureGetDepth, depth)
 NX_TEXTURE_GETTER(TextureGetFormat, format)

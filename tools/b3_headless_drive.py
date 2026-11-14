@@ -88,10 +88,21 @@ class Drive:
         tmp = self.live + ".tmp"
         with open(tmp, "w") as f:
             f.write(f"0:{button}:0;")
-        os.replace(tmp, self.live)
+        self._retry(lambda: os.replace(tmp, self.live))
         time.sleep(hold)
-        open(self.live, "w").write("")
+        self._retry(lambda: open(self.live, "w").close())
         time.sleep(0.55)
+
+    @staticmethod
+    def _retry(op, tries=20):
+        """Windows refuses to replace or truncate the file while the runtime has it open for its 50 ms poll."""
+        for k in range(tries):
+            try:
+                return op()
+            except PermissionError:
+                if k == tries - 1:
+                    raise
+                time.sleep(0.02)
 
     def save(self, info, tag):
         dst = os.path.join(self.keep, f"{tag}-{info['n']}.png")

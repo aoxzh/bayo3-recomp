@@ -1006,6 +1006,7 @@ void QueuePresentTexture(CPU& c) {
 void WindowSetCrop(CPU& c) {
     if (auto* w = get<Window>(c.x[0])) {
         int32_t v[4] = {int32_t(c.x[1]), int32_t(c.x[2]), int32_t(c.x[3]), int32_t(c.x[4])};
+        std::memcpy(w->guest_crop, v, sizeof v);  // the game reads back its own rectangle
         uw_crop(v);  // NX_ULTRAWIDE
         if (std::memcmp(v, w->crop, sizeof v) != 0) {
             static int logged = 0;
@@ -1022,7 +1023,7 @@ void WindowGetCrop(CPU& c) {
     auto it = objects().find(c.x[0]);
     auto* w = it == objects().end() ? nullptr : dynamic_cast<Window*>(it->second.get());
     if (!w) fatal("nvn: WindowGetCrop on an uninitialized window");
-    for (uint32_t k = 0; k < 4; ++k) st<int32_t>(c.x[1] + k * 4, w->crop[k]);
+    for (uint32_t k = 0; k < 4; ++k) st<int32_t>(c.x[1] + k * 4, w->guest_crop[k]);  // not the widened crop
 }
 
 }  // namespace

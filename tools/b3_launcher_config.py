@@ -150,7 +150,8 @@ SETTINGS = (
     Setting('render_scale', 'Resolution scale', 'choice', 'advanced', choices=RENDER_SCALES,
             help='NX_RENDER_SCALE: a factor on the reported resolution. Same caveat as above.'),
     Setting('ultrawide', 'Ultrawide', 'bool', 'advanced', default='0',
-            help='Experimental: widen the render targets and patch the camera aspect for windows wider than 16:9.'),
+            help='For windows wider than 16:9 (21:9, 32:9): the world shows more to the sides (Hor+) and menus and text '
+                 'keep their shape, centred. Some menu backgrounds still end at the 16:9 edges.'),
     Setting('mem_limit_gb', 'Memory limit (GB)', 'int', 'advanced', lo=1, hi=64, hint='platform default',
             help='The guard stops the process above this footprint. Empty uses the platform default; Windows uses 60% of RAM.'),
     Setting('pipelined', 'GPU submits in flight', 'choice', 'advanced', choices=PIPELINED,

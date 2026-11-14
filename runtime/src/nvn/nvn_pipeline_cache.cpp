@@ -245,7 +245,7 @@ static void warm_save() {
 }
 
 // The normal exit path: queue the warm records learned since the last save and wait for the writer.
-// (The driver cache itself is saved every 20 windows on the render thread; a cache snapshot here could
+// (The driver cache itself is saved on the render thread in a quiet window, creation_log; a cache snapshot here could
 // race pipeline creation from another thread, and the small .keys file is enough to rebuild it.)
 void pipeline_cache_flush() {
     if (!g_cache) return;
@@ -261,6 +261,10 @@ void note_astc_decoded(uint64_t ns) { g_astc++, g_astc_ns += ns; }
 
 // One line per timing window (nvn_vk.cpp log_timing): what the replay created, and the time it took.
 void creation_log(uint64_t frames) {
+    // Saving copies the whole driver cache (10+ MB, up to ~30 ms) on this thread. Do it in a window that made no
+    // pipelines, when the scene has settled, not in the middle of a burst of new ones (B3-Express 0.2.7 found the
+    // same stall); a burst that never settles still saves now and then.
+    const bool quiet = !g_pipelines && !g_worker_pipelines && !g_prewarmed;
     if (g_pipelines || g_astc)
         log("nvn/vk: created over %llu frames: %llu pipelines (%.1f ms), %llu ASTC textures decoded (%.1f ms)",
             (unsigned long long)frames, (unsigned long long)g_pipelines.load(), double(g_pipeline_ns.load()) / 1e6,
@@ -277,8 +281,11 @@ void creation_log(uint64_t frames) {
     g_worker_pipelines = 0, g_worker_ns = 0;
     g_prewarmed = g_waited = g_waited_ns = g_skipped = 0;
     g_pipelines = 0, g_pipeline_ns = 0, g_astc = g_astc_ns = 0;
-    static uint64_t windows = 0;
-    if (++windows % 20 == 0) pipeline_cache_save();
+    static uint64_t since_save = 0;
+    if (++since_save >= 20 && (quiet || since_save >= 120)) {
+        pipeline_cache_save();
+        since_save = 0;
+    }
     warm_save();  // small (hundreds of KB), off the frame thread: save what this scene learned right away
 }
 
