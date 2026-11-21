@@ -4,6 +4,15 @@
 
 Play with a controller, keyboard and mouse, or touch. Desktop and phone each have a launcher, so the everyday settings and performance profiles need no config-file editing.
 
+### Why this port
+
+- **Native speed, no emulator.** The whole game is recompiled to x86-64 and ARM64 code: about 89 fps median in combat on Windows, 54–60 fps on a Snapdragon 8 Elite phone, 50–60 fps on the Steam Deck.
+- **Simple setup.** Download, open the launcher, pick the files you extracted from your own copy. The setup guide finds them, checks the version, and builds the game. No Python, no compiler, no command line.
+- **PC to phone in minutes.** Plug in your phone and click **Send to my phone**. The computer builds the Android version and installs it over USB in a few minutes, instead of 30 to 60 minutes of setup on the phone.
+- **Better than the original.** 90/120 Hz at the right speed, ultrawide, higher detail, mods and an in-game settings panel.
+- **One-click bug reports.** **Report a bug** opens a prefilled GitHub issue and packs the logs for you, with no game files in them.
+- **Free and open source.** No game files included: you bring your own.
+
 **[Build & play](#getting-started)** · [Supported devices](#which-devices-are-supported) · [How it works](#how-it-works) · [简体中文](README.md) · [日本語](README.ja.md)
 
 MIT + GPL-3.0-or-later ([licensing](docs/LICENSING.md)) · Windows 10/11 x64 · Linux x86-64 (including Steam Deck) · Android 10+ arm64 with a Vulkan 1.3 GPU
