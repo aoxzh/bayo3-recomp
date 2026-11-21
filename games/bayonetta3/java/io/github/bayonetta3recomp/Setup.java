@@ -58,17 +58,75 @@ final class Setup {
 
     static File gameLibrary(Context c) { return new File(c.getFilesDir(), "game/libbayonetta3.so"); }
 
-    static File dumpFolder() { return new File(DataCheck.sharedRoot(), "dump"); }
+    static File dumpFolder() {
+        File found = findDump();
+        return found != null ? found : new File(DataCheck.sharedRoot(), "dump");
+    }
 
-    // What the dump folder lacks, or null when exefs/ and romfs/ are there (b3_win.py checks the files themselves).
-    static String dumpProblem() {
-        File d = dumpFolder();
-        if (!d.isDirectory()) return "no folder " + d;
-        for (String n : new String[] {"exefs", "romfs"}) {
-            String[] in = new File(d, n).list();
-            if (in == null || in.length == 0) return "no " + n + "/ in " + d;
+    // Where the player's extraction is: Bayonetta 3/dump first, then Download, Documents and the top of Internal
+    // storage, a few folder levels down; any folder holding an ExeFS (main) and a RomFS (.pkz files), in any of the
+    // layouts tools/b3_dump.py resolves (ExeFS/RomFS in any case, a folder level more, romfs/romfs). The setup then
+    // moves the files from there into the game's folder (the same storage: no copy).
+    static File findDump() {
+        File sd = android.os.Environment.getExternalStorageDirectory();
+        File[] roots = {new File(DataCheck.sharedRoot(), "dump"), new File(sd, "Download"), new File(sd, "Documents"),
+                        sd};
+        for (File r : roots) {
+            File hit = search(r, 0);
+            if (hit != null) return hit;
         }
         return null;
+    }
+
+    private static File search(File dir, int depth) {
+        if (dir == null || !dir.isDirectory()) return null;
+        if (has(dir, "exefs", true) && has(dir, "romfs", false)) return dir;
+        if (depth >= 3) return null;
+        File[] kids = dir.listFiles();
+        if (kids == null) return null;
+        for (File k : kids) {
+            String n = k.getName();
+            if (!k.isDirectory() || n.startsWith(".") || n.equalsIgnoreCase("Android")
+                    || n.equals(DataCheck.TITLE) && depth == 0 && dir.equals(android.os.Environment.getExternalStorageDirectory()))
+                continue;
+            File hit = search(k, depth + 1);
+            if (hit != null) return hit;
+        }
+        return null;
+    }
+
+    // An exefs/romfs child (any case) holding the ExeFS main or .pkz files, also one level further (romfs/romfs).
+    private static boolean has(File dir, String name, boolean exefs) {
+        File[] kids = dir.listFiles();
+        if (kids == null) return false;
+        for (File k : kids) {
+            if (!k.isDirectory() || !k.getName().equalsIgnoreCase(name)) continue;
+            if (holds(k, exefs)) return true;
+            File[] inner = k.listFiles();
+            if (inner != null)
+                for (File i : inner) if (i.isDirectory() && i.getName().equalsIgnoreCase(name) && holds(i, exefs)) return true;
+        }
+        return false;
+    }
+
+    private static boolean holds(File dir, boolean exefs) {
+        String[] names = dir.list();
+        if (names == null) return false;
+        for (String n : names) {
+            if (exefs && n.equalsIgnoreCase("main")) return true;
+            if (!exefs && n.toLowerCase(java.util.Locale.ROOT).endsWith(".pkz")) return true;
+        }
+        return false;
+    }
+
+    // What is missing, in plain words, or null when an extraction was found (b3_win.py checks the files themselves:
+    // version 1.2.0, a complete RomFS).
+    static String dumpProblem() {
+        if (findDump() != null) return null;
+        return "no extracted game found. Extract the ExeFS and the RomFS of your Bayonetta 3 (update 1.2.0 "
+                + "installed) with your emulator (Ryujinx: right-click > Extract Data > ExeFS, then RomFS; Eden / "
+                + "yuzu: Dump RomFS > Full, and Dump ExeFS) and copy the folder with exefs and romfs to the phone, "
+                + "for example into Internal storage/" + DataCheck.TITLE + "/dump or Download.";
     }
 
     static synchronized Setup current() { return current; }
@@ -78,6 +136,7 @@ final class Setup {
         current = new Setup();
         Setup s = current;
         new Thread(() -> s.run(app.getApplicationContext()), "b3-setup").start();
+        SetupService.start(app.getApplicationContext());  // a notification, and it goes on with the screen off
         return s;
     }
 

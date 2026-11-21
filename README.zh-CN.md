@@ -110,8 +110,8 @@ p10 是各报告窗口的第十百分位，不是由帧时间算出的 1% low。
   <img src="docs/images/android-touch-controls.jpg" width="49%" alt="Bayonetta 3 Recomp 的 Android 触屏按键：左摇杆、十字键、右摇杆和 ABXY">
 </p>
 
-- **桌面（Windows、Linux / Steam Deck）**：首页是背景图和一个竖排菜单（开始游戏 / 设置 / 游戏日志 / 退出），右下角显示能否启动、手柄状态和当前模式。设置按画面、手柄、音频、系统、高级分组，全部能用手柄操作：方向键移动，A 确认，B 返回，Start 直接开始。设置写在 `private/b3.conf`，和命令行脚本读的是同一份。
-- **Android**：首次运行时检查存储权限和游戏数据，缺什么直接说。首页显示游戏数据、着色器缓存、手柄、芯片和发热状态，提供省电 30 / 均衡 40 / 不锁帧三个性能档位。设置只放语言、Xbox 键位、静音和触屏按键这些常用项，其余收进「高级」。出问题时可以一键把日志、配置和芯片信息通过系统分享发出去。
+- **桌面（Windows、Linux / Steam Deck）**：首页是背景图和一个竖排菜单（开始游戏 / 重新构建 / 发送到手机 / 设置 / 游戏日志 / 报告问题 / 退出），右下角显示能否启动、手柄状态和当前模式。设置按画面、手柄、音频、系统、高级分组，全部能用手柄操作：方向键移动，A 确认，B 返回，Start 直接开始。设置写在 `private/b3.conf`，和命令行脚本读的是同一份。**Send to my phone（发送到手机）**会在这台电脑上几分钟编译好 Android 版，再通过 USB 把 App 和游戏装到手机上，进度显示在状态栏。**Set up from my dump（从游戏文件设置）**会打开引导：说明怎么用模拟器提取游戏文件，自动在电脑上找已经提取好的文件夹，你选的文件夹也会马上检查（是否 1.2.0、RomFS 是否完整、文件夹大小写或多套一层都能识别），有问题直接用大白话告诉你怎么改。**Report a bug（报告问题）**会把日志打包成 zip，并打开本项目的新建 issue 页面，系统信息已经填好：写下发生了什么，把 zip 拖进去，提交即可。
+- **Android**：首次运行时检查存储权限和游戏数据，缺什么直接说。首页显示游戏数据、着色器缓存、手柄、芯片和发热状态，提供省电 30 / 均衡 40 / 不锁帧三个性能档位。设置只放语言、Xbox 键位、静音和触屏按键这些常用项，其余收进「高级」。出问题时可以一键把日志、配置和芯片信息通过系统分享发出去。**SET UP** 在后台进行：可以离开这个页面或者锁屏，通知栏会显示当前步骤和进度，也能在通知里取消。设置会自动在 `Bayonetta 3/dump`、Download 或 Documents 里找你提取的文件。**Report a bug** 会把报告存到 Download，并打开新建 issue 页面，手机信息已经填好。
 
 ## 操作
 
@@ -146,7 +146,9 @@ flowchart LR
 
 ## 开始
 
-**最快：下载发布版。** 在[最新发布](https://github.com/aoxzh/bayo3-recomp/releases/latest)里下载对应平台的包：`windows-x64.zip`，Linux 和 Steam Deck 用 `linux-x86_64.tar.gz`。包里带着安装过程需要的工具（Linux 版连编译器都带了，系统里什么都不用装，适合 SteamOS），不含任何游戏内容。解压后运行 `Bayonetta3Recomp.cmd` / `Bayonetta3Recomp.sh`，选 **Set up from my dump**，选你的 1.2.0 dump 文件夹，之后由你自己的机器生成并编译游戏，大约半小时到两小时。在 Steam Deck 上，把 `Bayonetta3Recomp.sh` 作为非 Steam 游戏加入 Steam，启动选项填 `--play`，就能在游戏模式里直接启动。Android 上安装 `android-arm64.apk`，把 dump 的 `exefs/` 和 `romfs/` 放进 `内部存储/Bayonetta 3/dump`，点 **SET UP**：手机自己编译游戏（大约 30 到 60 分钟），不需要电脑。APK 里只有工具，不含游戏（[游玩指南](docs/PLAYING.md)）。
+**最快：下载发布版。** 在[最新发布](https://github.com/aoxzh/bayo3-recomp/releases/latest)里下载对应平台的包：`windows-x64.zip`，Linux 和 Steam Deck 用 `linux-x86_64.tar.gz`。包里带着安装过程需要的工具（Linux 版连编译器都带了，系统里什么都不用装，适合 SteamOS），不含任何游戏内容。解压后运行 `Bayonetta3Recomp.cmd` / `Bayonetta3Recomp.sh`，选 **Set up from my dump**，引导会自动找到或检查你提取游戏文件的文件夹（不用懂 Python，也不用命令行），之后由你自己的机器生成并编译游戏，大约半小时到两小时。在 Steam Deck 上，把 `Bayonetta3Recomp.sh` 作为非 Steam 游戏加入 Steam，启动选项填 `--play`，就能在游戏模式里直接启动。Android 上安装 `android-arm64.apk`，把 dump 的 `exefs/` 和 `romfs/` 放进 `内部存储/Bayonetta 3/dump`，点 **SET UP**：手机自己编译游戏（大约 30 到 60 分钟），不需要电脑。APK 里只有工具，不含游戏（[游玩指南](docs/PLAYING.md)）。
+
+**有电脑的话，Android 更快。** 先在 Windows 或 Linux 电脑上把游戏设置好，然后在启动器里选 **Send to my phone**（或者运行 `python tools/b3_win.py phone`）。电脑几分钟就能编译好手机版（16 线程 CPU 约 4 分钟，手机自己编译要 30 到 60 分钟），然后通过 USB 安装发布版 App，并把游戏复制到 `内部存储/Bayonetta 3`。开始前先打开 USB 调试（设置 > 关于手机 > 连点版本号 7 次，再到开发者选项打开 USB 调试），允许这台电脑，并保持手机解锁。第一次大约复制 15 GB，之后只传有变化的文件，中断了也能接着传。游戏通过只有 adb 能连上的通道交给 App，其他 App 没法塞代码进去；APK 本身依然不含游戏。
 
 **从源码：**
 

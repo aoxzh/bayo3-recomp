@@ -108,6 +108,38 @@ def make_report(root, host=None, now=None) -> Path:
     return out
 
 
+ISSUES = 'https://github.com/aoxzh/bayo3-recomp/issues/new'
+GPU_LINE = re.compile(r'^nvn/vk: using GPU \d+, (.+?) \(NX_GPU')
+
+
+def issue_url(root, report: Path, host=None) -> str:
+    """GitHub's new-issue page for this project, its form filled in: what to write, where the zip is, and the
+    version, system and GPU (nothing else: no paths, no user name). The player signs in, writes what happened, drags
+    the zip in and submits."""
+    from urllib.parse import urlencode
+    lines = []
+    version = Path(root) / 'VERSION'
+    lines.append(f'- version: {version.read_text(encoding="utf-8", errors="replace").strip()}'
+                 if version.is_file() else '- version: from source')
+    lines.append(f'- system: {platform.system()} {platform.release()} ({platform.machine()}, '
+                 f'{os.cpu_count()} logical CPUs)')
+    log = cfg.paths(root, host)['log']
+    if log.is_file():
+        with log.open('r', encoding='utf-8', errors='replace') as f:
+            for i, line in enumerate(f):
+                if i > 400:
+                    break
+                m = GPU_LINE.match(line)
+                if m:
+                    lines.append(f'- GPU: {m.group(1)}')
+                    break
+    body = ('**What happened?** (what you did, what you saw, what you expected)\n\n\n'
+            '**Where?** (chapter or menu, or right at the start)\n\n\n'
+            f'**Bug report:** drag `{report.name}` here. It just opened in a folder on your computer; it holds the '
+            'logs and settings, no game files.\n\n---\n' + '\n'.join(lines) + '\n')
+    return ISSUES + '?' + urlencode({'title': '[Bug] ', 'body': body})
+
+
 def main():
     root = Path(__file__).resolve().parent.parent
     print(make_report(root))

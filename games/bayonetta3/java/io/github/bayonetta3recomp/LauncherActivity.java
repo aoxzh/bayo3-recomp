@@ -75,6 +75,7 @@ public final class LauncherActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private Config cfg;
     private DataCheck data;
+    private GameImport gameImport;
     private String gpu;
     private int thermal = -1;
 
@@ -133,10 +134,18 @@ public final class LauncherActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         refresh();
+        if (gameImport == null) {
+            gameImport = new GameImport(this, what -> ui.post(() -> {
+                refresh();
+                Toast.makeText(this, "The game built on your computer is installed.", Toast.LENGTH_LONG).show();
+            }));
+        }
+        gameImport.start();  // the computer's b3_win.py phone sends the game it built (GameImport.java)
     }
 
     @Override protected void onPause() {
         super.onPause();
+        if (gameImport != null) gameImport.stop();
         if (cfg != null && panelLayer.getVisibility() == View.VISIBLE) saveAdvanced();
     }
 
@@ -297,7 +306,7 @@ public final class LauncherActivity extends Activity {
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.END);
         TextView report = Ui.button(this, "Report a bug", false);
-        report.setOnClickListener(v -> shareReport());
+        report.setOnClickListener(v -> reportIssue());
         top.addView(report);
         View sp = new View(this);
         top.addView(sp, new LinearLayout.LayoutParams(dp(10), 1));
@@ -521,7 +530,10 @@ public final class LauncherActivity extends Activity {
     private void showData() {
         StringBuilder b = new StringBuilder();
         if (needsSetup()) {  // an APK that builds the game here (Setup.java)
-            dataValue.setText("Not set up yet · Set up turns your dump into the game on this phone");
+            dataValue.setText(Setup.current() != null && Setup.current().running
+                    ? "Setting up · " + Setup.current().phase + " (tap SET UP to see it)"
+                    : "Not set up yet · SET UP builds the game from your dump here (30-60 min), or send it from a "
+                    + "computer over USB in minutes (desktop launcher: Send to my phone)");
             dataValue.setTextColor(Ui.GOLD);
             dot(dataDot, Ui.GOLD);
             start.setText("SET UP");
@@ -838,7 +850,42 @@ public final class LauncherActivity extends Activity {
         return b.toString();
     }
 
-    private void shareReport() {
+    private void shareReport() { makeReport(false); }
+
+    // Report a bug: the zip goes to Downloads (the browser's file picker finds it there) and our GitHub issue page
+    // opens with its form filled in (what to write, the app, Android, chip and GPU: no paths). The player signs in,
+    // writes what happened, attaches the zip and submits. Without Downloads it falls back to the share sheet.
+    private void reportIssue() { makeReport(true); }
+
+    private void openIssue(String zipName) {
+        String body = "**What happened?** (what you did, what you saw, what you expected)\n\n\n"
+                + "**Where?** (chapter or menu, or right at the start)\n\n\n"
+                + "**Bug report:** attach `" + zipName + "` from your phone's Downloads folder (logs and settings, "
+                + "no game files).\n\n---\n"
+                + "- app: " + appVersion() + "\n"
+                + "- android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\n"
+                + "- chip: " + ChipInfo.soc() + "\n"
+                + "- GPU: " + (gpu == null ? "?" : gpu) + "\n";
+        Uri uri = Uri.parse("https://github.com/aoxzh/bayo3-recomp/issues/new").buildUpon()
+                .appendQueryParameter("title", "[Bug][Android] ")
+                .appendQueryParameter("body", body).build();
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+        } catch (Exception e) {
+            Toast.makeText(this, "No browser found: open github.com/aoxzh/bayo3-recomp/issues", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private String appVersion() {
+        try {
+            PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return pi.versionName;
+        } catch (Exception e) {
+            return "?";
+        }
+    }
+
+    private void makeReport(final boolean issue) {
         final String text = report();
         final File root = data != null ? data.root : null;
         Toast.makeText(this, "Preparing the report…", Toast.LENGTH_SHORT).show();
@@ -861,10 +908,28 @@ public final class LauncherActivity extends Activity {
             } catch (IOException e) {
                 error = e.getMessage();
             }
+            File saved = null;
+            if (issue && error == null) {
+                File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                File copy = new File(downloads, zip.getName());
+                try (FileInputStream in = new FileInputStream(zip); FileOutputStream out = new FileOutputStream(copy)) {
+                    byte[] buf = new byte[1 << 16];
+                    for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+                    saved = copy;
+                } catch (IOException ignored) {  // no access to Downloads: the share sheet below
+                }
+            }
             final String err = error;
+            final File inDownloads = saved;
             ui.post(() -> {
                 if (err != null) {
                     Toast.makeText(this, "Could not make the report: " + err, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                if (inDownloads != null) {
+                    Toast.makeText(this, "Saved " + inDownloads.getName() + " in Downloads: attach it on the page "
+                            + "that opens", Toast.LENGTH_LONG).show();
+                    openIssue(inDownloads.getName());
                     return;
                 }
                 Uri uri = SupportProvider.uri(this, zip);

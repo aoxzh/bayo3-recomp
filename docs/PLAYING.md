@@ -282,16 +282,33 @@ This runs the normal visible, audible executable directly and does not load `pri
 
 ## Android arm64 — build, install and play
 
-### From a release (no PC needed)
+### From a release, on the phone alone
 
 The release's `android-arm64.apk` carries the launcher and the setup tools (clang and lld built to run on Android, Python, the shader translator, spirv-val), not the game. The phone turns your own dump into the game itself:
 
 1. Install the APK and open it. Allow "All files access" when it asks (the game folder lives in Internal storage).
 2. Copy the `exefs/` and `romfs/` folders of your Bayonetta 3 1.2.0 dump into `Internal storage/Bayonetta 3/dump` (from a PC over USB, or with a file manager).
-3. Tap **SET UP**, then **Start setup**. Keep the phone charging and the screen open: the setup moves the dump into the game folder (a rename, so no second copy), translates the game's code and shaders, and compiles them on the phone. That takes about 30 to 60 minutes on a recent phone and needs about 6 GB free. If it stops, **Start setup** carries on from the last finished step.
+3. Tap **SET UP**, then **Start setup**. Keep the phone charging. You can leave the screen or turn it off: the setup goes on in the background, with the step, its progress and a Cancel button in a notification (allow notifications when it asks). The setup moves the dump into the game folder (a rename, so no second copy), translates the game's code and shaders, and compiles them on the phone. That takes about 30 to 60 minutes on a recent phone and needs about 6 GB free. If it stops, **Start setup** carries on from the last finished step.
 4. When it says the game is ready, go back and press **START**.
 
 The setup downloads one file: the source of the Kraken decoder (powzix/ooz at a pinned commit), whose license keeps it out of the APK; the phone compiles it like the rest. The game itself uses no network. The built game stays inside the app (`files/game/libbayonetta3.so`), and saves go to `Internal storage/Bayonetta 3/user`. To install a newer release over this one, both must be signed with the same key: the releases are, but an APK you built yourself is not, so back up `user/` before switching between them.
+
+### From a computer that has the game (fastest)
+
+A Windows or Linux computer that has set the game up (above) already has its generated code, shaders and data. It can build the phone's game in a few minutes instead of the phone's 30 to 60, and put everything on the phone over USB:
+
+1. On the phone: Settings > About phone > tap **Build number** 7 times, then Developer options > **USB debugging** on. Connect it by USB and allow the computer when the phone asks. Keep it unlocked.
+2. On the computer: in the launcher choose **Send to my phone**, or run `python tools/b3_win.py phone` (`--serial <id>` when more than one phone is connected, `--build-only` to only build).
+
+It then:
+
+- downloads the release APK of the same version (a checkout from git passes `--apk <file>`) and compiles the game for arm64 Android with the computer's own clang, against the sysroot and runtime the APK carries for its on-phone setup (about 4 minutes on a 16-thread CPU);
+- finds `adb` (an Android SDK, PATH, or Google's platform-tools fetched into `private/win/tools`);
+- installs the release app, unchanged;
+- copies the code images, the shaders and the RomFS into `Internal storage/Bayonetta 3` (about 15 GB the first time; later only files that are missing or changed, so an interrupted copy carries on);
+- hands the game's library to the app through a local socket that only adb's shell user can reach (`GameImport.java`): no other app can give it code, and the APK still never carries the game.
+
+Then open the app on the phone and tap **START**. After a new release, run it again: only what changed is rebuilt and sent.
 
 ### The developer route
 

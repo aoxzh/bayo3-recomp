@@ -306,6 +306,38 @@ def publish(stage, final):
     shutil.rmtree(backup)
 
 
+def recompile_jobs(modules):
+    """How many modules recompile at once: B3_RECOMP_JOBS, else all of them when the machine has 6 GB of memory or
+    more (a recompiler peaks near 1 GB) and a core each, else one at a time."""
+    env = os.environ.get('B3_RECOMP_JOBS', '')
+    if env.isdigit() and int(env) > 0:
+        return min(int(env), modules)
+    memory = 0
+    try:
+        with open('/proc/meminfo') as f:
+            memory = int(next(l for l in f if l.startswith('MemTotal:')).split()[1]) * 1024
+    except (OSError, StopIteration, ValueError):
+        try:
+            memory = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
+        except (AttributeError, ValueError, OSError):
+            if sys.platform == 'win32':
+                import ctypes
+
+                class Status(ctypes.Structure):
+                    _fields_ = [('length', ctypes.c_ulong), ('load', ctypes.c_ulong),
+                                ('total', ctypes.c_ulonglong), ('avail', ctypes.c_ulonglong),
+                                ('pagefile', ctypes.c_ulonglong), ('avail_pagefile', ctypes.c_ulonglong),
+                                ('virtual', ctypes.c_ulonglong), ('avail_virtual', ctypes.c_ulonglong),
+                                ('extended', ctypes.c_ulonglong)]
+                s = Status()
+                s.length = ctypes.sizeof(Status)
+                if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(s)):
+                    memory = s.total
+    if memory and memory < 6 << 30:
+        return 1
+    return max(1, min(modules, os.cpu_count() or 1))
+
+
 def generate_module(source, destination, name, python, patch_files=()):
     extra = ['--patch', *map(str, patch_files)] if patch_files else []
     subprocess.run([str(python), '-m', 'recomp', str(source), str(destination),
@@ -428,12 +460,21 @@ def prepare(args):
             if previous and (final / 'gen').exists():
                 shutil.copytree(final / 'gen', stage / 'gen', copy_function=os.link)
             if args.generate:
-                for name in args.module or cfg['runtime_modules']:
+                names = list(args.module or cfg['runtime_modules'])
+                for name in names:
                     out = stage / 'gen' / name
                     if out.exists():
                         shutil.rmtree(out)
-                    # Preserve the venv entrypoint symlink: resolving it loses pyvenv.cfg discovery.
-                    generate_module(exefs / name, out, name, args.python.absolute(), patch_files)
+                # The modules are independent: each is its own recompiler process (one core each, up to ~1 GB),
+                # so they run side by side (recompile_jobs()). Preserve the venv entrypoint symlink: resolving it
+                # loses pyvenv.cfg discovery.
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(recompile_jobs(len(names))) as pool:
+                    for f in [pool.submit(generate_module, exefs / n, stage / 'gen' / n, n, args.python.absolute(),
+                                          patch_files) for n in names]:
+                        f.result()
+                for name in names:
+                    out = stage / 'gen' / name
                     if previous:
                         reuse_unchanged_files(final / 'gen' / name, out)
                     generated[name] = {'status': 'complete', 'source_sha256': modules[name]['sha256'],

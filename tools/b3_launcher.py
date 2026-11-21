@@ -768,10 +768,11 @@ class Launcher(tk.Tk):
         self._text(left, px(178), 'Native build of the Switch game · bring your own game files', (UI, 10), MUTED)
         # The menu: large serif words, the selected one gold with a cyan diamond, as a pad-first menu reads.
         labels = {'play': 'Stop game' if self.proc is not None else 'Start game', 'settings': 'Settings',
-                  'log': 'Hide game log' if self.log_shown else 'Game log', 'report': 'Make a bug report',
+                  'log': 'Hide game log' if self.log_shown else 'Game log', 'report': 'Report a bug',
                   'quit': 'Quit',
                   'setup': 'Setting up…' if self.task else 'Set up from my dump',
-                  'rebuild': 'Rebuilding…' if self.task else 'Rebuild'}
+                  'rebuild': 'Rebuilding…' if self.task else 'Rebuild',
+                  'phone': 'Sending to the phone…' if self.task else 'Send to my phone'}
         step = px(54)
         menu = self._menu()
         top = h - px(84) - step * (len(menu) - 1)
@@ -1043,7 +1044,7 @@ class Launcher(tk.Tk):
             return self.MENU
         if not cfg.install_state(self.root)['built']:
             return ('setup', 'settings', 'log', 'report', 'quit')
-        return ('play', 'rebuild', 'settings', 'log', 'report', 'quit')
+        return ('play', 'rebuild', 'phone', 'settings', 'log', 'report', 'quit')
 
     def _menu_activate(self):
         menu = self._menu()
@@ -1053,6 +1054,8 @@ class Launcher(tk.Tk):
             self.run_setup()
         elif key == 'rebuild':
             self.run_task('update', ['update'])
+        elif key == 'phone':
+            self.send_to_phone()
         elif key == 'play':
             self.play_or_stop()
         elif key == 'settings':
@@ -1171,16 +1174,121 @@ class Launcher(tk.Tk):
 
     # -- setup and update (Windows: tools/b3_win.py) ---------------------------------------------------------------
     def run_setup(self):
+        """The setup wizard: how to extract the game files, the extractions found on this computer, a folder of the
+        player's choice checked at once (tools/b3_dump.py), and Start setup only for one that is usable."""
         if self.task is not None:
             return
-        dump = filedialog.askdirectory(parent=self, title='Your Bayonetta 3 1.2.0 dump: the folder with exefs and romfs')
-        if not dump:
+        import b3_dump
+        win = tk.Toplevel(self, bg=PANEL)
+        win.title('Set up from your game files')
+        win.transient(self)
+        win.minsize(px(640), px(420))
+        pad = {'padx': px(20)}
+        tk.Label(win, text='Set up from your game files', bg=PANEL, fg=TEXT, font=(DISPLAY, 20),
+                 anchor='w').pack(fill='x', pady=(px(18), px(6)), **pad)
+        tk.Label(win, text=b3_dump.HOW_TO_EXTRACT, bg=PANEL, fg=MUTED, font=(UI, 10), justify='left', anchor='w',
+                 wraplength=px(760)).pack(fill='x', **pad)
+        tk.Label(win, text='Your game files', bg=PANEL, fg=GOLD, font=(UI, 11, 'bold'),
+                 anchor='w').pack(fill='x', pady=(px(14), px(4)), **pad)
+        choices = tk.Frame(win, bg=PANEL)
+        choices.pack(fill='x', **pad)
+        verdict = tk.Label(win, text='Looking on this computer…', bg=PANEL, fg=MUTED, font=(UI, 10), justify='left',
+                           anchor='w', wraplength=px(760))
+        verdict.pack(fill='x', pady=(px(8), 0), **pad)
+        buttons = tk.Frame(win, bg=PANEL)
+        buttons.pack(fill='x', side='bottom', pady=px(16), **pad)
+        picked = tk.StringVar(value='')
+        results = {}
+
+        start = tk.Button(buttons, text='Start setup', state='disabled', bg=GOLD, fg=BG, activebackground=GOLD,
+                          relief='flat', font=(UI, 11, 'bold'), padx=px(16), pady=px(6))
+        start.pack(side='right')
+        tk.Button(buttons, text='Choose a folder…', bg=FIELD, fg=TEXT, activebackground=HOVER, relief='flat',
+                  font=(UI, 10), padx=px(12), pady=px(6),
+                  command=lambda: choose()).pack(side='right', padx=px(10))
+        tk.Button(buttons, text='Cancel', bg=PANEL, fg=MUTED, activebackground=HOVER, relief='flat', font=(UI, 10),
+                  command=win.destroy).pack(side='left')
+
+        def show(folder):
+            r = results.get(folder)
+            if not r:
+                return
+            picked.set(folder)
+            if r['ok']:
+                verdict.configure(text=f'✓ Ready: {folder}\nThe setup builds the game from these files on this PC '
+                                  '(about half an hour to two hours the first time; closing the launcher pauses '
+                                  'it, Set up carries on).', fg=CYAN)
+                start.configure(state='normal')
+            else:
+                verdict.configure(text='✗ ' + '\n✗ '.join(r['problems']), fg=RED)
+                start.configure(state='disabled')
+
+        def add(r):
+            folder = r['folder']
+            results[folder] = r
+            tk.Radiobutton(choices, text=('✓  ' if r['ok'] else '✗  ') + folder, variable=picked, value=folder,
+                           command=lambda f=folder: show(f), bg=PANEL, fg=TEXT if r['ok'] else MUTED,
+                           selectcolor=FIELD, activebackground=PANEL, activeforeground=GOLD, font=(UI, 10),
+                           anchor='w').pack(fill='x')
+
+        def choose():
+            folder = filedialog.askdirectory(parent=win, title='The folder with your extracted exefs and romfs')
+            if not folder:
+                return
+            verdict.configure(text='Checking…', fg=MUTED)
+            win.update_idletasks()
+            r = b3_dump.inspect(folder)
+            if r['folder'] not in results:
+                add(r)
+            results[r['folder']] = r
+            show(r['folder'])
+
+        def found(hits):
+            if not win.winfo_exists():
+                return
+            for r in hits:
+                add(r)
+            if hits:
+                show(hits[0]['folder'])
+            else:
+                verdict.configure(text='Nothing found in the usual places. Choose the folder where you extracted '
+                                  'the game.', fg=MUTED)
+
+        def search():
+            try:
+                hits = b3_dump.find()
+            except Exception:
+                hits = []
+            self.after(0, lambda: found(hits))
+        threading.Thread(target=search, daemon=True).start()
+
+        def go():
+            folder = picked.get()
+            r = results.get(folder)
+            if not r or not r['ok']:
+                return
+            r = b3_dump.inspect(folder)  # deep: the RomFS's version too
+            if not r['ok']:
+                results[folder] = r
+                show(folder)
+                return
+            win.destroy()
+            self.run_task('setup', ['setup', '--dump', folder])
+        start.configure(command=go)
+
+    def send_to_phone(self):
+        """The game for an Android phone, built here and put on it over USB (tools/b3_phone.py)."""
+        if self.task is not None or self.proc is not None:
             return
-        if not messagebox.askokcancel('Set up', 'This builds the game from your dump on this PC. The first time takes '
-                                      'about an hour; if you close the launcher, Set up resumes where it stopped.',
-                                      parent=self):
+        if not messagebox.askokcancel(
+                'Send to my phone',
+                'Builds the game for an Android phone on this computer (a few minutes), then installs the app and '
+                'copies the game to the phone over USB (about 15 GB the first time; later only what changed).\n\n'
+                'Before you start: on the phone, turn on USB debugging (Settings > About phone > tap Build number '
+                '7 times, then Developer options > USB debugging), connect it by USB, allow this computer, and keep '
+                'the phone unlocked.', parent=self):
             return
-        self.run_task('setup', ['setup', '--dump', dump])
+        self.run_task('phone', ['phone'])
 
     def run_task(self, kind, args):
         if self.task is not None or self.proc is not None:
@@ -1238,13 +1346,19 @@ class Launcher(tk.Tk):
         if self.task is not None and self.task.poll() is not None and self.task_lines.empty():
             code, kind = self.task.returncode, self.task_kind
             self.task = None
-            if code == 0:
+            if code == 0 and kind == 'phone':
+                self._set_status('Phone ready: open Bayonetta 3 Recomp on the phone and tap START')
+            elif code == 0:
                 self._set_status(f'{kind.capitalize()} finished: ready to play')
             else:
                 last = next((l for l in reversed(self.task_log) if 'error' in l.lower()), f'exit code {code}')
                 self._set_status(f'{kind.capitalize()} stopped: {last}', bad=True)
             self.menu_index = 0
             self.layout()
+        elif changed and self.task is not None and self.task_kind == 'phone':
+            last = next((l[len('b3: phone: '):] for l in reversed(self.task_log) if l.startswith('b3: phone: ')),
+                        'starting')
+            self._set_status(f'Phone: {last}')
         elif changed and self.task is not None:
             self._set_status(f'{self.task_kind.capitalize()}: {self.task_step or "starting"} '
                              f'({self.task_done}/{self.task_total})')
@@ -1358,7 +1472,7 @@ class Launcher(tk.Tk):
         except OSError as e:
             self._set_status(f'Could not make the bug report: {e}', bad=True)
             return
-        self._set_status(f'Bug report: {self._short(out)} (attach it to your issue; no game files in it)')
+        self._set_status(f'Bug report: {self._short(out)}: drag it into the issue page that opened (no game files)')
         try:
             if sys.platform == 'win32':
                 subprocess.Popen(['explorer', '/select,', str(out)])
@@ -1366,6 +1480,13 @@ class Launcher(tk.Tk):
                 subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', str(out.parent)])
         except OSError:
             pass  # the status line already names the file
+        # Our issue page, its form filled in (b3_report.issue_url): the player writes what happened, drags the zip
+        # in and submits. Signing in to GitHub is the only other step.
+        try:
+            import webbrowser
+            webbrowser.open(b3_report.issue_url(self.root, out))
+        except Exception:
+            pass
 
     def toggle_log(self):
         self.log_shown = not self.log_shown

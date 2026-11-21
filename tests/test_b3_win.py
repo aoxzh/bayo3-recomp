@@ -195,7 +195,10 @@ def test_program1_added_after_setup():
         (dump / 'program1/exefs').mkdir(parents=True)
         (dump / 'program1/romfs').mkdir(parents=True)
         w.setup(args)
-        eq(ran, w.STEPS[w.STEPS.index('verify'):], 'program1/ appearing in the dump makes verify .. link run again')
+        # The shaders run beside cpu and build (setup's `beside`), so only the set is fixed, and link comes last.
+        eq(sorted(ran), sorted(w.STEPS[w.STEPS.index('verify'):]),
+           'program1/ appearing in the dump makes verify .. link run again')
+        check(ran[-1] == 'link' and ran.index('cpu') < ran.index('build'), 'link last, build after cpu')
         check(w.load(w.SETTINGS, {}).get('program1', '').endswith('program1'), 'program 1 recorded')
         ran.clear()
         w.setup(args)

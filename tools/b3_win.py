@@ -196,6 +196,17 @@ def dump_layout(folder, program):
     romfs = child(folder, 'romfs')
     if exefs is None and child(folder, 'main') is not None:
         exefs = folder
+    if (exefs is None or romfs is None) and program == 'b3':
+        # Any layout an emulator or a copy leaves: a folder level more, the exefs or romfs folder itself picked,
+        # romfs/romfs (tools/b3_dump.py), with what is wrong said in plain words.
+        sys.path.insert(0, str(ROOT / 'tools'))
+        import b3_dump
+        found_exefs, found_romfs = b3_dump.resolve(folder)
+        exefs, romfs = exefs or found_exefs, romfs or found_romfs
+        if exefs is None or romfs is None:
+            r = b3_dump.inspect(folder, deep=False)
+            raise SetupError('\n  '.join([f'{folder} is not a usable extraction of the game:'] + r['problems']) +
+                             '\n' + b3_dump.HOW_TO_EXTRACT)
     if exefs is None or romfs is None:
         raise SetupError(f'{folder} must hold exefs/ and romfs/ (the {program} dump)')
     return exefs, romfs
@@ -223,7 +234,11 @@ def check_dump(program, folder, log):
         elif sha256(path) != want:
             bad.append(f'{name}: does not match 1.2.0')
     if bad:
-        raise SetupError(f'the {program} dump does not match Bayonetta 3 1.2.0:\n  ' + '\n  '.join(bad))
+        advice = []
+        if program == 'b3':  # the plain-words reason (another version, the base game's RomFS) and how to extract
+            import b3_dump
+            advice = b3_dump.inspect(folder)['problems'] + [b3_dump.HOW_TO_EXTRACT]
+        raise SetupError(f'the {program} dump does not match Bayonetta 3 1.2.0:\n  ' + '\n  '.join(advice + bad))
     with log.open('a', encoding='utf-8') as f:
         f.write(f'{program}: {exefs} and {romfs} match {config_path.name}\n')
 
@@ -760,7 +775,11 @@ def build_android(found, log, jobs):
         os.replace(part, obj)
         return None
 
-    with concurrent.futures.ThreadPoolExecutor(max(1, jobs or (os.cpu_count() or 4) // 2)) as pool:
+    # All cores but two on a phone with 8 GB or more (a clang at -O2 on a big generated file takes up to ~1 GB),
+    # else half of them, as before.
+    cores = os.cpu_count() or 4
+    jobs = jobs or (max(1, cores - 2) if memory_gb() >= 8 else max(1, cores // 2))
+    with concurrent.futures.ThreadPoolExecutor(jobs) as pool:
         for error in pool.map(compile_one, todo):
             if error:
                 with open(log, 'a', encoding='utf-8') as f:
@@ -896,21 +915,87 @@ def setup(a):
         say('setup: program 1 (the picture book) is new: making it')
         for step in STEPS[STEPS.index('verify'):]:
             state.pop(step, None)
-    for step in STEPS:
-        if step not in chosen or (not a.only and not a.from_step and step in state):
-            continue
-        started = time.time()
-        if step == 'build':
-            step_build(settings, log, a.jobs)
-        else:
-            globals()[f'step_{step}'](settings, log)
+    pending = [s for s in STEPS if s in chosen and not (not a.only and not a.from_step and s in state)]
+
+    def finish(step, started):
         state[step] = {'at': time.strftime('%Y-%m-%d %H:%M:%S'), 'seconds': round(time.time() - started)}
         if step in FINGERPRINTED:
             state[step]['fingerprint'] = fingerprint(step)
         save(STATE, state)
         say(f'{step}: done in {round(time.time() - started)} s')
+
+    # The shaders need only the game's files, not the generated code: when both are to be made they run side by
+    # side (the shaders in a thread, with their own log), and the link step waits for both. B3_SERIAL=1, or a machine
+    # under 6 GB of memory, keeps the old order.
+    beside = None
+    if 'cpu' in pending and 'shaders' in pending and os.environ.get('B3_SERIAL') != '1' and memory_gb() >= 6:
+        import threading
+        beside = {'log': log.with_name(log.stem + '-shaders.log'), 'error': None}
+
+        def shaders_beside():
+            beside['started'] = time.time()
+            try:
+                step_shaders(settings, beside['log'])
+            except BaseException as e:  # reported by the main thread
+                beside['error'] = e
+
+        beside['thread'] = threading.Thread(target=shaders_beside, name='b3-shaders', daemon=True)
+
+    def join_shaders():
+        if beside and beside['thread'].is_alive():
+            say('shaders: waiting for the shaders to finish')
+            beside['thread'].join()
+        if beside and beside['thread'].ident is not None and 'shaders' not in state:
+            if beside['error']:
+                raise beside['error']
+            finish('shaders', beside['started'])
+
+    for step in pending:
+        if step == 'shaders' and beside:
+            continue  # running beside the code steps
+        if step == 'cpu' and beside:
+            say(f'shaders: running beside the code (log: {beside["log"]})')
+            beside['thread'].start()
+        if step == 'link':
+            join_shaders()
+        started = time.time()
+        try:
+            if step == 'build':
+                step_build(settings, log, a.jobs)
+            else:
+                globals()[f'step_{step}'](settings, log)
+        except BaseException:
+            if beside and beside['thread'].is_alive():
+                say('setup: stopped; waiting for the shaders to stop too')
+                beside['thread'].join()
+            raise
+        finish(step, started)
+    join_shaders()
     say('setup complete: python tools/b3_win.py play')
     return 0
+
+
+def memory_gb():
+    """This machine's memory in GB (0 when it cannot be read)."""
+    try:
+        with open('/proc/meminfo') as f:
+            return int(next(l for l in f if l.startswith('MemTotal:')).split()[1]) / (1 << 20)
+    except (OSError, StopIteration, ValueError):
+        pass
+    if WINDOWS:
+        import ctypes
+
+        class Status(ctypes.Structure):
+            _fields_ = [('length', ctypes.c_ulong), ('load', ctypes.c_ulong), ('total', ctypes.c_ulonglong),
+                        ('rest', ctypes.c_ulonglong * 6)]
+        s = Status()
+        s.length = ctypes.sizeof(Status)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(s)):
+            return s.total / (1 << 30)
+    try:
+        return os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / (1 << 30)
+    except (AttributeError, ValueError, OSError):
+        return 0
 
 
 # ---- update ----------------------------------------------------------------------------------------------------------
@@ -1247,6 +1332,7 @@ def package(a):
                     z.write(src, f'{name}/{f}')
                     count += 1
             z.writestr(f'{name}/Bayonetta3Recomp.cmd', LAUNCH_CMD.replace('\n', '\r\n'))
+            z.writestr(f'{name}/VERSION', version + '\n')  # which release APK goes with it (phone, b3_report)
             if a.python:
                 py = Path(a.python).resolve()
                 if not (py / 'python.exe').exists():
@@ -1271,6 +1357,10 @@ def package(a):
             data = LAUNCH_SH.encode()
             info.size, info.mode = len(data), 0o755
             import io
+            tar.addfile(info, io.BytesIO(data))
+            info = tarfile.TarInfo(f'{name}/VERSION')
+            data = (version + '\n').encode()
+            info.size = len(data)
             tar.addfile(info, io.BytesIO(data))
             if toolset:
                 tar.add(toolset, f'{name}/toolset', filter=lambda ti: None if '__pycache__' in ti.name else ti)
@@ -1308,6 +1398,19 @@ def main(argv=None):
     f.add_argument('--data', choices=['link', 'copy', 'move', 'keep'], help='as for setup')
     f.add_argument('--no-launcher', action='store_true', help='stop after setup')
     f.set_defaults(func=first_run)
+    h = sub.add_parser('phone', help='build the game for an Android phone here and put it on the phone over USB '
+                       '(tools/b3_phone.py): minutes instead of the phone\'s own 30-60 minute setup')
+    h.add_argument('--apk', help='the release APK (default: the one of this release, downloaded)')
+    h.add_argument('--serial', help='which phone (adb devices), when more than one is connected')
+    h.add_argument('--jobs', type=int, default=0, help='parallel compile jobs (default: all cores but one)')
+    h.add_argument('--build-only', action='store_true', help='build the library, do not touch the phone')
+
+    def phone(a):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        sys.modules.setdefault('b3_win', sys.modules[__name__])  # one module: its SetupError is the one caught here
+        import b3_phone
+        return b3_phone.phone_command(a)
+    h.set_defaults(func=phone)
     k = sub.add_parser('package', help='a release archive of this checkout (tracked files and the toolset, no game '
                        'data): a .zip on Windows, a .tar.gz on Linux')
     k.add_argument('--out', default=str(ROOT / 'dist'), help='where the zip goes (default: dist/)')
