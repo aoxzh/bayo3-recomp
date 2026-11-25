@@ -185,6 +185,8 @@ struct StagingBlock {
 };
 std::vector<std::pair<uint64_t, StagingBlock>> g_staging;
 std::vector<StagingBlock> g_staging_free;
+// frame_upload_alloc's overflow blocks (issue #10): submits and bytes per log period, and the lines logged in all.
+uint64_t g_overflow_submits = 0, g_overflow_total = 0, g_overflow_logged = 0;  // per log period; lines logged in all
 uint64_t g_staging_free_bytes = 0, g_staging_reused = 0;
 uint64_t staging_pool_bytes() {
     static const uint64_t bytes = [] {
@@ -1026,6 +1028,10 @@ void frame_log(uint64_t frames) {
             (unsigned long long)g_staging_count, (unsigned long long)g_staging_reused, double(g_staging_free_bytes) / 1e6,
             double(g_staging_bytes) / 1e6, (unsigned long long)frames);
     upload_cost_log(frames);
+    if (g_overflow_submits)
+        log("nvn/vk: upload ring full in %llu submits over %llu frames: %.1f MB went to blocks of their own",
+            (unsigned long long)g_overflow_submits, (unsigned long long)frames, double(g_overflow_total) / 1e6);
+    g_overflow_submits = g_overflow_total = 0;
     g_staging_count = g_staging_bytes = g_staging_reused = 0;
     if (replay_fence_poll_on()) {
         const auto& p = g_replay_poll_stats;
@@ -1050,7 +1056,83 @@ void frame_log(uint64_t frames) {
     split_diag_log();
 }
 
+// Issue #10: what a submit uploads once the ring is full, as Witch-Time's stream ring does at a wrap (nothing the GPU
+// may still read is written over). The ring wrapped over this submit's own first data instead, which parts not yet
+// queued and dedup hits still read: the GPU hung. Here the rest of the submit goes into blocks of their own (the
+// ring's usage, so they bind as it does), freed when the submit retires like staging buffers; the ring is untouched.
+// NX_RING_OVERFLOW=0: the old wrap.
+struct Overflow {
+    VkBuffer buffer = VK_NULL_HANDLE;
+    uint8_t* ptr = nullptr;
+    uint64_t size = 0, used = 0, serial = 0;  // serial: the submit these blocks belong to
+    bool cached = false;
+    uint64_t blocks = 0, bytes = 0;  // this submit's, for the log
+} g_overflow;
+
+bool ring_overflow_on() {
+    static const bool on = [] {
+        const char* e = std::getenv("NX_RING_OVERFLOW");
+        return !(e && e[0] == '0');
+    }();
+    return on;
+}
+
+bool overflow_alloc(uint64_t size, uint64_t align, Upload& out) {
+    Overflow& o = g_overflow;
+    const uint64_t serial = g_submitted + 1;  // the submit being recorded
+    if (o.serial != serial) o = {}, o.serial = serial;
+    uint64_t at = (o.used + align - 1) & ~(align - 1);
+    if (!o.buffer || at + size > o.size) {
+        VkDevice d = vk_device();
+        const uint64_t want = std::max<uint64_t>(32ull << 20, (size + align + (1u << 20) - 1) & ~uint64_t((1u << 20) - 1));
+        VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bi.size = want;
+        bi.usage = kUploadUsage;
+        VkBuffer buffer = VK_NULL_HANDLE;
+        if (p_vkCreateBuffer(d, &bi, nullptr, &buffer) != VK_SUCCESS) return false;
+        VkMemoryRequirements req{};
+        p_vkGetBufferMemoryRequirements(d, buffer, &req);
+        VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        ai.allocationSize = req.size;
+        ai.memoryTypeIndex = upload_memory_type(req.memoryTypeBits);
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        void* mapped = nullptr;
+        if (p_vkAllocateMemory(d, &ai, nullptr, &memory) != VK_SUCCESS || p_vkBindBufferMemory(d, buffer, memory, 0) ||
+            p_vkMapMemory(d, memory, 0, VK_WHOLE_SIZE, 0, &mapped) != VK_SUCCESS) {
+            p_vkDestroyBuffer(d, buffer, nullptr);
+            if (memory) p_vkFreeMemory(d, memory, nullptr);
+            return false;
+        }
+        const bool cached = (memory_type_properties(ai.memoryTypeIndex) & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) != 0;
+        {
+            // Kept past this submit's own retire: NX_CARRY's copies at the start of the next replay read the written
+            // copies in it (the ring's g_tail_hold), and a present may come between the two. Every slot's submit after
+            // this one has retired by then.
+            std::lock_guard lk(g_grave_lock);
+            g_staging.push_back({serial + g_slot_count, {buffer, memory, static_cast<uint8_t*>(mapped), want, cached}});
+        }
+        if (!o.blocks) {
+            g_overflow_submits++;
+            if (g_overflow_logged++ < 3)
+                log("nvn/vk: upload ring full (%llu MB in this submit): the rest of it goes to blocks of its own",
+                    (unsigned long long)((g_head - g_begin) >> 20));
+        }
+        o.buffer = buffer, o.ptr = static_cast<uint8_t*>(mapped), o.size = want, o.used = 0, o.cached = cached;
+        o.blocks++;
+        at = 0;
+    }
+    o.used = at + size;
+    o.bytes += size, g_overflow_total += size;
+    out = {o.buffer, at, o.ptr + at, false, o.cached};
+    return true;
+}
+
 Upload frame_upload_alloc(uint64_t size, uint64_t align) {
+    // This submit already overflowed: everything older is retired, so the ring has no room until it retires itself.
+    if (g_overflow.blocks && g_overflow.serial == g_submitted + 1) {
+        Upload u;
+        if (overflow_alloc(size, align, u)) return u;
+    }
     uint64_t at = (g_head + align - 1) & ~(align - 1);
     if (at % g_ring_size + size > g_ring_size) at += g_ring_size - at % g_ring_size;  // never split: the next lap
     while (at + size > g_tail + g_ring_size)  // the oldest submits' data is still read: wait for them
@@ -1069,6 +1151,10 @@ Upload frame_upload_alloc(uint64_t size, uint64_t align) {
                 g_tail_hold = UINT64_MAX, g_tail_held_by = nullptr;
                 g_tail = std::max(g_tail, g_begin);
                 if (at + size <= g_tail + g_ring_size) break;
+            }
+            if (ring_overflow_on()) {
+                Upload u;
+                if (overflow_alloc(size, align, u)) return u;
             }
             log("nvn/vk: upload buffer full (%llu bytes in this submit)", (unsigned long long)(at + size - g_begin));
             g_tail = at + size - g_ring_size;  // this submit wraps over its own first data, as the synchronous path

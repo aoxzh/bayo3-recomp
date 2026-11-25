@@ -213,6 +213,7 @@ void reset() {
     g_ring_host_cached = false; staging_type = staging_failure = 0;
     g_head = 64; g_tail = g_begin = 0;
     g_landing = 0; g_carry_next = false; g_tail_hold = UINT64_MAX; g_tail_held_by = nullptr;
+    g_overflow = {}; g_overflow_submits = g_overflow_total = 0;
     g_grave.clear(); g_reusable.clear(); g_staging.clear(); g_staging_free.clear(); g_staging_free_bytes = 0;
     for (uint32_t i = 0; i < g_slot_count; ++i) {
         Slot& s = g_slots[i];
@@ -487,6 +488,7 @@ void test_upload_memory_properties() {
         for (uint32_t type : {0u, 1u}) {
             reset(); g_current = nullptr;
             frame_init(handle<VkCommandPool>(77), 23, handle<VkBuffer>(7), ring, sizeof ring, cached_ring);
+            g_head = g_tail = g_begin = 0;  // an empty ring: a full one sends the upload to an overflow block
             const Upload r = frame_upload_alloc(16, 16);
             check(r.host_cached == cached_ring && !r.direct && r.ptr == ring + r.offset,
                   "frame ring propagates its own mapping properties");
@@ -513,6 +515,28 @@ void test_upload_memory_properties() {
     check(!Upload{}.host_cached, "unknown mapping never claims host caching");
 }
 // A retired buffer serves the next texture of about its size, and stays mapped until then.
+// Issue #10, as Witch-Time's stream ring: a full ring with nothing left to retire never takes back what this submit
+// wrote (parts not yet queued and dedup hits still read it). The rest of the submit goes into blocks of its own,
+// retired with the submit; only when no block can be made does the old wrap remain.
+void test_ring_overflow() {
+    reset();  // a 64-byte ring, all of it this submit's (head 64, tail 0), nothing in flight
+    const Upload a = frame_upload_alloc(16, 16);
+    check(a.buffer == handle<VkBuffer>(9000) && a.offset == 0 && a.ptr == staging_bytes,
+          "a full ring sends the upload to a block of its own");
+    check(g_head == 64 && g_tail == 0, "the ring is not taken back from this submit");
+    const Upload b = frame_upload_alloc(24, 16);
+    check(b.buffer == a.buffer && b.offset == 16 && g_staging.size() == 1 && g_overflow_submits == 1 &&
+          g_overflow_total == 40, "later uploads of the submit share the block");
+    free_retired_images(g_submitted + 1);
+    check(g_staging.size() == 1, "the block outlives its submit: the next replay's carry copies may read it");
+    free_retired_images(g_submitted + 1 + g_slot_count);
+    check(g_staging.empty(), "freed once every slot's next submit has retired");
+
+    reset();
+    staging_failure = 1;  // no block can be made: the old wrap, as a last resort
+    frame_upload_alloc(16, 16);
+    check(g_tail == 16 && g_head == 80, "without a block the submit wraps, as before");
+}
 void test_staging_pool() {
     reset(); g_current = nullptr;
     frame_init(handle<VkCommandPool>(77), 23, handle<VkBuffer>(7), ring, sizeof ring, false);
@@ -554,6 +578,7 @@ int main(int argc, char** argv) {
         if (argc > 1 && std::string(argv[1]) == "carry") {
             test_carry();
             test_carry_full();
+            test_ring_overflow();
             return 0;
         }
         const bool disabled = argc > 1 && std::string(argv[1]) == "off";
