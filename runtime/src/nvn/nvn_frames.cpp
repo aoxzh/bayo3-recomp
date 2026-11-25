@@ -1062,6 +1062,14 @@ Upload frame_upload_alloc(uint64_t size, uint64_t align) {
                 wait_fences(fences, queued_fences(*g_current, g_current->part, fences));
                 g_current->waited = g_current->part;
             }
+            // NX_CARRY holds the previous submit's data until this one retires, which left a submit half the ring
+            // (issue #10: "full" at 128 of 256 MB). Its only reader is the copies at the start of this submit's first
+            // part (written_carry_seed): once that part ran and the older submits are retired, it is free.
+            if (g_current && g_tail_held_by == g_current && g_current->waited > 0) {
+                g_tail_hold = UINT64_MAX, g_tail_held_by = nullptr;
+                g_tail = std::max(g_tail, g_begin);
+                if (at + size <= g_tail + g_ring_size) break;
+            }
             log("nvn/vk: upload buffer full (%llu bytes in this submit)", (unsigned long long)(at + size - g_begin));
             g_tail = at + size - g_ring_size;  // this submit wraps over its own first data, as the synchronous path
             replay::dedup_reset();

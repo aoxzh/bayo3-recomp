@@ -299,6 +299,27 @@ void test_writeback_order() {
     chunks(256);
     check(events == std::vector<std::string>({"writeback", "first", "second"}), "later completion follows write-back");
 }
+// Issue #10: a submit that fills the ring while NX_CARRY still holds the previous submit's stretch. Once its first
+// part (the carry copies) ran, the hold has no reader: the ring is freed up to this submit's start, not wrapped over.
+void test_carry_full() {
+    reset();
+    g_tail = 16, g_tail_hold = 16, g_tail_held_by = g_current;  // the previous submit (16..48) retired, still held
+    g_begin = 48, g_head = 72;  // this submit has 24 bytes so far, in parts 0 and 1
+    g_current->part = 1, g_current->queued = 1, g_current->waited = 0;
+    const Upload u = frame_upload_alloc(16, 16);
+    check(u.offset == 16 && wait_calls == 1 && g_current->waited == 1, "the first part is waited for");
+    check(g_tail == 48 && g_tail_hold == UINT64_MAX && !g_tail_held_by && g_head == 96,
+          "the held stretch is freed, and the submit's own data is kept");
+
+    // Still in the first part: the copies may not have run, so the hold stays (the old wrap).
+    reset();
+    g_tail = 16, g_tail_hold = 16, g_tail_held_by = g_current;
+    g_begin = 48, g_head = 72;
+    g_current->part = 0, g_current->queued = 0, g_current->waited = 0;
+    frame_upload_alloc(16, 16);
+    check(g_tail_held_by == g_current && g_tail_hold == 16, "no part ran: the hold stays");
+}
+
 // NX_CARRY: the part of the wait in front of a replay that is left, and what it does with the ring.
 void test_carry() {
     reset();
@@ -532,6 +553,7 @@ int main(int argc, char** argv) {
         setenv("NX_STAGING_POOL_MB", "0", 1);  // the retirement tests below watch buffers being destroyed
         if (argc > 1 && std::string(argv[1]) == "carry") {
             test_carry();
+            test_carry_full();
             return 0;
         }
         const bool disabled = argc > 1 && std::string(argv[1]) == "off";
