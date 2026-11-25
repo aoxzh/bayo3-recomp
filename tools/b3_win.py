@@ -870,7 +870,25 @@ def step_link(settings, log):
     say(f'link: data in {b3_root}; your saves are in {b3_root / "user"}')
 
 
+def spec_note():
+    """This computer against the minimum (b3_spec.py), in the log: a warning only here; the launcher asks."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import b3_spec
+        below, weak, summary = b3_spec.check(ROOT)
+    except Exception:
+        return
+    say(f'computer: {summary}')
+    for b in below:
+        say(f'computer: below the minimum: {b}')
+    for w in weak:
+        say(f'computer: may struggle: {w}')
+    if below:
+        say(f'computer: {b3_spec.MINIMUM}')
+
+
 def setup(a):
+    spec_note()
     settings = load(SETTINGS, {})
     if a.dump:
         settings['dump'] = str(Path(a.dump).resolve())
@@ -1404,6 +1422,7 @@ def main(argv=None):
     h.add_argument('--serial', help='which phone (adb devices), when more than one is connected')
     h.add_argument('--jobs', type=int, default=0, help='parallel compile jobs (default: all cores but one)')
     h.add_argument('--build-only', action='store_true', help='build the library, do not touch the phone')
+    h.add_argument('--anyway', action='store_true', help='send it to a phone below the minimum too')
 
     def phone(a):
         sys.path.insert(0, str(Path(__file__).resolve().parent))

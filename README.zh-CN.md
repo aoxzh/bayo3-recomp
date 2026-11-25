@@ -93,9 +93,11 @@ agent 会检查系统、显卡驱动和工具链，校验你的游戏文件版�
 
 | 平台 | 状态 | 最低要求 |
 |---|---|---|
-| Windows | 可玩。生成代码、构建、启动全流程都能在原生 Windows 上完成 | Windows 10/11 x64，支持 Vulkan 1.3 的显卡驱动 |
-| Linux / Steam Deck | 可玩 | x86-64，Mesa RADV 或其他 Vulkan 1.3 驱动 |
-| Android | 可玩，带触屏按键和启动器 | arm64，Android 10（API 29）以上，GPU 支持 Vulkan 1.3；骁龙 8 Gen 2 / Adreno 740 或更新的芯片效果较好 |
+| Windows | 可玩。生成代码、构建、启动全流程都能在原生 Windows 上完成 | Windows 10/11 x64，12 GB 内存，8 代 Core i5 / Ryzen 5 3600 级别 CPU，GTX 1050 / RX 560 / Intel UHD 级别且支持 Vulkan 1.3 的 GPU；推荐 16 GB、11 代 Core i5 / Ryzen 5 5600 和 GTX 1060 / RX 570 / Iris Xe 或更新 |
+| Linux / Steam Deck | 可玩 | x86-64，Mesa RADV 或其他 Vulkan 1.3 驱动，内存、CPU、GPU 要求同 Windows；Steam Deck 没问题 |
+| Android | 可玩，带触屏按键和启动器 | arm64，Android 10（API 29）以上，GPU 支持 Vulkan 1.3，CPU 最快核心 2.4 GHz 以上，6 GB 内存，Adreno 640 / Mali-G68 级别或更新的 GPU；骁龙 8 Gen 2 / Adreno 740 或更新、8 GB 内存效果较好 |
+
+低于最低要求时，桌面启动器会在开始游戏和安装前提示（内存至少 12 GB，较旧的 CPU、GPU 也会点名说明），Android App 会在点 SET UP 或 START 之前提示，**Send to my phone** 也会在构建前先检查手机：否则 30 到 60 分钟的安装最后只会黑屏（Mali-G57 MC2 无法编译游戏的着色器）。两边都仍可选择坚持尝试。
 
 macOS 也有构建，但还没有完整测试，这里先不列入支持范围。
 

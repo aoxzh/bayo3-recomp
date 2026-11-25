@@ -1,6 +1,7 @@
 package io.github.bayonetta3recomp;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.GameManager;
 import android.app.NativeActivity;
 import android.content.ClipData;
@@ -77,6 +78,8 @@ public final class LauncherActivity extends Activity {
     private DataCheck data;
     private GameImport gameImport;
     private String gpu;
+    private DeviceCheck.Result spec;  // the phone against the minimum (DeviceCheck.java), once the GPU name is known
+    private boolean specShown;
     private int thermal = -1;
 
     private FrameLayout root;
@@ -115,7 +118,22 @@ public final class LauncherActivity extends Activity {
             } catch (Throwable ignored) {
             }
             final String found = g;
-            ui.post(() -> { gpu = found; showChip(); });
+            DeviceCheck.Result r = null;
+            try {
+                r = DeviceCheck.run(this, found, false);
+            } catch (Throwable ignored) {
+            }
+            final DeviceCheck.Result checked = r;
+            ui.post(() -> {
+                gpu = found;
+                spec = checked;
+                showChip();
+                // Below the minimum: say so once when the launcher opens, before anyone starts a setup.
+                if (spec != null && !spec.ok() && !tried(spec) && !specShown) {
+                    specShown = true;
+                    specDialog(spec, null);
+                }
+            });
         }, "gpu-name").start();
 
         InputManager im = getSystemService(InputManager.class);
@@ -636,7 +654,34 @@ public final class LauncherActivity extends Activity {
 
     private void showChip() {
         if (chipValue == null) return;
-        chipValue.setText(ChipInfo.soc() + (gpu != null ? " · " + gpu : ""));
+        String s = ChipInfo.soc() + (gpu != null ? " · " + gpu : "");
+        if (spec != null && !spec.ok()) {
+            chipValue.setText(s + "\nBelow the minimum: " + String.join("; ", spec.below));
+            chipValue.setTextColor(Ui.RED);
+        } else if (spec != null && !spec.weak.isEmpty()) {
+            chipValue.setText(s + "\nMay struggle: " + String.join("; ", spec.weak));
+            chipValue.setTextColor(Ui.GOLD);
+        } else {
+            chipValue.setText(s);
+            chipValue.setTextColor(Ui.TEXT);
+        }
+    }
+
+    // "Try anyway" is remembered for the same findings: a new reason (less free space) asks again.
+    private boolean tried(DeviceCheck.Result r) {
+        return r.key().equals(getSharedPreferences("device_check", MODE_PRIVATE).getString("tried", null));
+    }
+
+    private void specDialog(DeviceCheck.Result r, Runnable then) {
+        new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+                .setTitle("This phone is below the minimum")
+                .setMessage(DeviceCheck.message(r))
+                .setPositiveButton("Close", null)
+                .setNeutralButton("Try anyway", (d, w) -> {
+                    getSharedPreferences("device_check", MODE_PRIVATE).edit().putString("tried", r.key()).apply();
+                    if (then != null) then.run();
+                })
+                .show();
     }
 
     private static final String[] HEAT = {"Cool", "Light · fine", "Warm · clocks may drop",
@@ -711,6 +756,12 @@ public final class LauncherActivity extends Activity {
 
     private void startGame() {
         if (cfg == null) return;
+        // The same check as at launch, with the free space when this starts a setup.
+        DeviceCheck.Result r = DeviceCheck.run(this, gpu, needsSetup());
+        if (!r.ok() && !tried(r)) {
+            specDialog(r, this::startGame);
+            return;
+        }
         if (needsSetup()) {
             startActivity(new Intent(this, SetupActivity.class));
             return;

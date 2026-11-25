@@ -633,6 +633,8 @@ class Launcher(tk.Tk):
         self.proc = None
         self.stopping = False
         self.status_text, self.status_bad = '', False
+        self._spec = None  # b3_spec.check(): this computer against the minimum, read in the background
+        threading.Thread(target=self._read_spec, daemon=True).start()
         self.help_text = ''
         self.pad = Pad()
         self.pad_tick = 0
@@ -1178,6 +1180,8 @@ class Launcher(tk.Tk):
         player's choice checked at once (tools/b3_dump.py), and Start setup only for one that is usable."""
         if self.task is not None:
             return
+        if not self.pc_ok('Set it up'):
+            return
         import b3_dump
         win = tk.Toplevel(self, bg=PANEL)
         win.title('Set up from your game files')
@@ -1290,6 +1294,19 @@ class Launcher(tk.Tk):
             return
         self.run_task('phone', ['phone'])
 
+    def phone_below_minimum(self):
+        """Send to my phone stopped before building: the phone cannot run the game (b3_phone.spec_rules). Say why,
+        and send it anyway only if asked (default: no)."""
+        prefix = 'b3: phone: below the minimum: '
+        reasons = [l[len(prefix):] for l in self.task_log if l.startswith(prefix)]
+        minimum = next((l[len('b3: phone: '):].split(' Not sent')[0] for l in self.task_log
+                        if l.startswith('b3: phone: Minimum:')), '')
+        text = ('The game is very unlikely to run on this phone:\n\n' + '\n'.join(f'• {r}' for r in reasons) +
+                f'\n\n{minimum}\n\nSending it copies about 15 GB, and the game may not start or may show only a '
+                'black screen. Send it anyway?')
+        if messagebox.askyesno('This phone is below the minimum', text, icon='warning', default='no', parent=self):
+            self.run_task('phone', ['phone', '--anyway'])
+
     def run_task(self, kind, args):
         if self.task is not None or self.proc is not None:
             return
@@ -1348,6 +1365,9 @@ class Launcher(tk.Tk):
             self.task = None
             if code == 0 and kind == 'phone':
                 self._set_status('Phone ready: open Bayonetta 3 Recomp on the phone and tap START')
+            elif code == 3 and kind == 'phone':  # b3_phone.BELOW_MINIMUM: nothing built or sent yet
+                self._set_status('Not sent: the phone is below the minimum', bad=True)
+                self.after(50, self.phone_below_minimum)
             elif code == 0:
                 self._set_status(f'{kind.capitalize()} finished: ready to play')
             else:
@@ -1370,8 +1390,51 @@ class Launcher(tk.Tk):
         else:
             self.stop()
 
+    def _read_spec(self):
+        try:
+            import b3_spec
+            self._spec = b3_spec.check(self.root)
+        except Exception:  # a check that fails must never keep anyone from playing
+            self._spec = ([], [], '')
+
+    def pc_ok(self, what):
+        """Before Play and setup: below the minimum (b3_spec.pc_rules), say why and go on only if asked (default no,
+        remembered for the same findings); a computer that may struggle is told once."""
+        if self._spec is None:
+            self._read_spec()
+        below, weak, summary = self._spec
+        state = self.root / 'private' / 'spec-answered.txt'
+        try:
+            answered = state.read_text(encoding='utf-8')
+        except OSError:
+            answered = ''
+        key = '|'.join(below or weak)
+        if not key or answered == key:
+            return True
+        import b3_spec
+        if below:
+            text = ('The game is very unlikely to run well on this computer:\n\n' +
+                    '\n'.join(f'• {b}' for b in below) + f'\n\n{b3_spec.MINIMUM}\n\n({summary})\n\n'
+                    f'{what} anyway?')
+            if not messagebox.askyesno('This computer is below the minimum', text, icon='warning', default='no',
+                                       parent=self):
+                self._set_status('Not started: this computer is below the minimum', bad=True)
+                return False
+        else:
+            messagebox.showwarning('This computer may struggle', 'The game runs here, but:\n\n' +
+                                   '\n'.join(f'• {w}' for w in weak) + f'\n\n{b3_spec.MINIMUM}\n\n({summary})',
+                                   parent=self)
+        try:
+            state.parent.mkdir(parents=True, exist_ok=True)
+            state.write_text(key, encoding='utf-8')
+        except OSError:
+            pass
+        return True
+
     def play(self):
         if self.proc is not None or self.task is not None:
+            return
+        if not self.pc_ok('Start the game'):
             return
         state = cfg.install_state(self.root)
         if not state['built']:

@@ -24,6 +24,7 @@ import os
 from pathlib import Path
 import shutil
 import socket
+import re
 import subprocess
 import sys
 import time
@@ -348,18 +349,90 @@ def send_library(phone, lib):
     raise SetupError('the app did not answer: unlock the phone, open "Bayonetta 3 Recomp" and run this again')
 
 
+# The minimum a phone needs, as the app's DeviceCheck.java (keep the two in step): below it the game does not start or
+# draws nothing (issues #9 and #11: a Mali-G57 MC2 on a chip whose fastest cores run at 2.2 GHz), so a 15 GB copy and
+# a setup are not worth it. Measured to work: Adreno 740, 825 and 830 with cores at 3.2 GHz and up.
+MINIMUM = ('Minimum: Vulkan 1.3, a CPU core at 2.4 GHz or faster, 6 GB of memory and an Adreno 640 / Mali-G68 class '
+           'GPU or newer. Recommended: Snapdragon 8 Gen 1 or newer with 8 GB.')
+BELOW_MINIMUM = 3  # phone_command's exit code when the phone is below it (the launcher offers to send anyway)
+
+
+def spec_rules(memory, khz, vulkan, gpu):
+    """(below, weak): reasons under the minimum, and reasons it may struggle. memory in bytes (MemTotal), khz the
+    fastest core's cpuinfo_max_freq, vulkan the android.hardware.vulkan.version feature (0 unknown), gpu the GLES
+    renderer name or ''."""
+    below, weak = [], []
+    if vulkan and vulkan < 0x403000:
+        below.append('no Vulkan 1.3 driver (the game draws with Vulkan 1.3)')
+    if memory and memory < 5_300_000_000:
+        below.append(f'{memory / 1e9:.1f} GB of memory (6 GB at least)')
+    elif memory and memory < 7_300_000_000:
+        weak.append(f'{memory / 1e9:.1f} GB of memory: the game may swap and stutter (8 GB recommended)')
+    if khz and khz < 2_400_000:
+        below.append(f'fastest CPU core {khz / 1e6:.1f} GHz (2.4 GHz at least)')
+    elif khz and khz < 2_800_000:
+        weak.append(f'fastest CPU core {khz / 1e6:.1f} GHz: expect under 30 fps in fights')
+    adreno, mali = re.search(r'Adreno\s*(\d+)', gpu or ''), re.search(r'Mali-G(\d+)', gpu or '')
+    if adreno:
+        n = int(adreno.group(1))
+        if n < 640:
+            below.append(f'{gpu} (Adreno 640 or newer)')
+        elif n < 730:
+            weak.append(f'{gpu}: a mid-range GPU, expect a low frame rate')
+    elif mali:
+        # Two digits: Bifrost and the first Valhall parts. G31-G76: entry-level or old drivers (the Mali-G57 MC2 of
+        # #9 could not build one pipeline); G68/G77/G78: mid-range. Three digits (G610 and up), Immortalis: untested.
+        n = int(mali.group(1))
+        if n < 100 and n not in (68, 77, 78):
+            below.append(f"{gpu} (its driver could not build the game's shaders on a Mali-G57)")
+        elif n < 100:
+            weak.append(f'{gpu}: a mid-range GPU, expect a low frame rate')
+        else:
+            weak.append(f'{gpu}: not tested yet')
+    elif gpu and (gpu.startswith('Mali-T') or 'PowerVR' in gpu or 'Maleoon' in gpu):
+        below.append(f"{gpu} (too old for the game's shaders)")
+    elif gpu:
+        weak.append(f'{gpu}: not tested yet')
+    return below, weak
+
+
+def phone_spec(phone):
+    """The phone's memory, fastest core, Vulkan version and GPU name, read over adb."""
+    mem = re.search(r'MemTotal:\s*(\d+)', phone.shell('cat /proc/meminfo', check=False))
+    freqs = phone.shell('cat /sys/devices/system/cpu/cpu*/cpufreq/cpuinfo_max_freq', check=False).split()
+    vulkan = re.search(r'android\.hardware\.vulkan\.version=(\d+)', phone.shell('pm list features', check=False))
+    gles = re.search(r'GLES:\s*[^,]*,\s*([^,]+),', phone.shell('dumpsys SurfaceFlinger | grep -m1 GLES', check=False))
+    gpu = gles.group(1).replace('(TM)', '').replace('  ', ' ').strip() if gles else ''
+    if not gpu:  # newer Android prints no GLES line: the kernel's GPU drivers name it ("Adreno830v2", "Mali-G57 2 cores")
+        kgsl = re.match(r'Adreno(\d+)', phone.shell('cat /sys/class/kgsl/kgsl-3d0/gpu_model 2>/dev/null', check=False))
+        mali = re.match(r'(Mali-\w+)', phone.shell('cat /sys/class/misc/mali0/device/gpuinfo 2>/dev/null', check=False))
+        gpu = f'Adreno {kgsl.group(1)}' if kgsl else mali.group(1) if mali else ''
+    return spec_rules(int(mem.group(1)) * 1024 if mem else 0, max((int(f) for f in freqs if f.isdigit()), default=0),
+                      int(vulkan.group(1)) if vulkan else 0, gpu), gpu
+
+
 def phone_command(a):
     settings = b3_win.load(b3_win.SETTINGS, {})
     found = b3_win.tools(settings)
     apk = release_apk(a.apk)
+    phone = None
+    if not a.build_only:  # the phone first: a phone that cannot run the game is told before a 4-minute build
+        phone = pick_phone(adb_path(), a.serial)
+        model = phone.shell('getprop ro.soc.model', check=False).strip()
+        (below, weak), gpu = phone_spec(phone)
+        say(f'phone: {phone.serial}' + (f' ({model}' + (f', {gpu}' if gpu else '') + ')' if model else ''))
+        for w in weak:
+            say(f'phone: may struggle: {w}')
+        if below and not a.anyway:
+            for b in below:
+                say(f'phone: below the minimum: {b}')
+            say(f'phone: {MINIMUM} Not sent; send it anyway with --anyway (the launcher asks).')
+            return BELOW_MINIMUM
     toolset = apk_toolset(apk)
     lib = build(found, toolset, a.jobs)
     if a.build_only:
         say(f'phone: built {lib}; not sent (--build-only)')
         return 0
-    phone = pick_phone(adb_path(), a.serial)
-    model = phone.shell('getprop ro.soc.model', check=False).strip()
-    say(f'phone: {phone.serial}' + (f' ({model})' if model else ''))
     install_app(phone, apk)
     _, romfs = b3_win.local_layout(settings, 'b3')
     phone.shell(f'mkdir -p "{REMOTE}/user"')

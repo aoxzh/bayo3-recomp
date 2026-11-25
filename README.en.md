@@ -58,9 +58,11 @@ You need your own legally obtained ExeFS and RomFS of Bayonetta 3 **version 1.2.
 
 | Platform | Status | Minimum |
 |---|---|---|
-| Windows | Playable. Code generation, build and launch all run on native Windows | Windows 10/11 x64, a GPU driver with Vulkan 1.3 |
-| Linux / Steam Deck | Playable | x86-64, Mesa RADV or another Vulkan 1.3 driver |
-| Android | Playable, with touch controls and a launcher | arm64, Android 10 (API 29) or later, a Vulkan 1.3 GPU; a Snapdragon 8 Gen 2 / Adreno 740 or newer plays best |
+| Windows | Playable. Code generation, build and launch all run on native Windows | Windows 10/11 x64, 12 GB of memory, a CPU like an 8th-gen Core i5 / Ryzen 5 3600, a Vulkan 1.3 GPU like a GTX 1050 / RX 560 / Intel UHD; 16 GB, an 11th-gen Core i5 / Ryzen 5 5600 and a GTX 1060 / RX 570 / Iris Xe or newer recommended |
+| Linux / Steam Deck | Playable | x86-64, Mesa RADV or another Vulkan 1.3 driver, the same memory, CPU and GPU as Windows; the Steam Deck is fine |
+| Android | Playable, with touch controls and a launcher | arm64, Android 10 (API 29) or later, a Vulkan 1.3 GPU, a CPU core at 2.4 GHz or faster, 6 GB of memory, an Adreno 640 / Mali-G68 class GPU or newer; a Snapdragon 8 Gen 2 / Adreno 740 or newer with 8 GB plays best |
+
+Below the minimum, the desktop launcher says so before Play and setup (12 GB of memory at least; an older CPU or GPU is named as such), the Android app says so before SET UP or START, and **Send to my phone** checks the phone before building: a setup would take 30 to 60 minutes and end in a black screen (a Mali-G57 MC2 cannot build the game's shaders). Both still let you try anyway.
 
 There is also a macOS build, but it has not been fully tested and is not listed as supported for now.
 

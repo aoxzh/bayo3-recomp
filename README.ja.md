@@ -93,9 +93,11 @@ docs/AGENT-REPRODUCTION.md に従って、このマシンで <Windows PC / Steam
 
 | プラットフォーム | 状態 | 最低要件 |
 |---|---|---|
-| Windows | プレイ可能。コード生成、ビルド、起動まですべてネイティブ Windows で完結 | Windows 10/11 x64、Vulkan 1.3 対応の GPU ドライバー |
-| Linux / Steam Deck | プレイ可能 | x86-64、Mesa RADV など Vulkan 1.3 対応ドライバー |
-| Android | プレイ可能。タッチ操作とランチャー付き | arm64、Android 10（API 29）以降、Vulkan 1.3 対応 GPU。Snapdragon 8 Gen 2 / Adreno 740 以降のチップで快適 |
+| Windows | プレイ可能。コード生成、ビルド、起動まですべてネイティブ Windows で完結 | Windows 10/11 x64、メモリ 12 GB、第 8 世代 Core i5 / Ryzen 5 3600 クラスの CPU、GTX 1050 / RX 560 / Intel UHD クラスで Vulkan 1.3 対応の GPU。推奨はメモリ 16 GB、第 11 世代 Core i5 / Ryzen 5 5600、GTX 1060 / RX 570 / Iris Xe 以降 |
+| Linux / Steam Deck | プレイ可能 | x86-64、Mesa RADV など Vulkan 1.3 対応ドライバー。メモリ、CPU、GPU は Windows と同じ。Steam Deck は問題なし |
+| Android | プレイ可能。タッチ操作とランチャー付き | arm64、Android 10（API 29）以降、Vulkan 1.3 対応 GPU、最速の CPU コアが 2.4 GHz 以上、メモリ 6 GB、Adreno 640 / Mali-G68 クラス以降の GPU。Snapdragon 8 Gen 2 / Adreno 740 以降とメモリ 8 GB で快適 |
+
+最低要件を満たさない場合、デスクトップランチャーはプレイとセットアップの前に（メモリは 12 GB 以上。古い CPU や GPU はその旨を表示）、Android アプリは SET UP や START の前にそう伝えます。**Send to my phone** もビルドの前にスマホを確認します。そのままでは 30〜60 分のセットアップの末に黒い画面になるためです（Mali-G57 MC2 はゲームのシェーダーをビルドできません）。どちらでも、それでも試すことはできます。
 
 macOS 向けのビルドもありますが、十分なテストが済んでいないため、今のところ対応には含めていません。
 
