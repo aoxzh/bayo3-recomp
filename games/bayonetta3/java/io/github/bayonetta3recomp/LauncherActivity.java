@@ -91,7 +91,7 @@ public final class LauncherActivity extends Activity {
     private final LinearLayout[] profileRows = new LinearLayout[PROFILES.length];
     private TextView dataValue, cacheValue, padValue, chipValue, heatValue, note;
     private View dataDot, cacheDot, padDot, heatDot;
-    private Ui.Row langRow, swapRow, muteRow, touchRow, opacityRow, sizeRow;
+    private Ui.Row langRow, swapRow, muteRow, touchRow, opacityRow, sizeRow, folderRow;
     private LinearLayout advanced;
     private TextView advancedRow, folderText;
     private EditText advancedText;
@@ -475,6 +475,10 @@ public final class LauncherActivity extends Activity {
         sizeRow = row(list, "Size", null);
         sizeRow.stepper = d -> { cfg.set("NX_TOUCH_SIZE", "" + stepInt(SIZE, "NX_TOUCH_SIZE", 100, d)); saveAndShow(); };
 
+        section(list, "STORAGE");
+        folderRow = row(list, "Game folder", "Where the game data, your saves and the shader cache are");
+        folderRow.stepper = d -> pickFolder();
+
         section(list, "SUPPORT");
         Ui.Row share = row(list, "Share a bug report", "A zip of nx.log, config.txt and the chip info, through the share sheet");
         share.value.setText("›");
@@ -623,6 +627,12 @@ public final class LauncherActivity extends Activity {
         boolean touchOn = !touch.equals("0");
         opacityRow.show(cfg.get("NX_TOUCH_OPACITY", "85") + "%", touchOn);
         sizeRow.show(cfg.get("NX_TOUCH_SIZE", "100") + "%", touchOn);
+        List<Storage.Volume> vols = Storage.volumes(this);
+        Storage.Volume here = data.root.equals(DataCheck.ownRoot(this)) ? null : Storage.volumeOf(this, data.root);
+        folderRow.show(here != null ? here.name : "App folder", true);
+        folderRow.hint.setText(vols.size() > 1 ? "Where the game data, your saves and the shader cache are: "
+                + "Internal storage or " + vols.get(1).name
+                : "Where the game data, your saves and the shader cache are. An SD card shows up here once inserted");
         folderText.setText("Data folder: " + data.root.getAbsolutePath() + "\nOther lines of config.txt, kept as "
                 + "they are. A line for a setting above is replaced by that setting.");
         advancedText.setText(cfg.otherText());
@@ -747,6 +757,116 @@ public final class LauncherActivity extends Activity {
         } catch (Exception e) {
             startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
         }
+    }
+
+    // Settings > Game folder: Internal storage or an SD card (Storage.java). A folder that already holds the game is
+    // just used; the game moves there when it is here (copied, then removed here); with nothing set up yet, SET UP
+    // puts it there.
+    private void pickFolder() {
+        if (Setup.current() != null && Setup.current().running) {
+            Toast.makeText(this, "The setup is running: change the game folder after it.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final List<Storage.Volume> vols = Storage.volumes(this);
+        if (vols.size() < 2) {
+            Toast.makeText(this, "No SD card found: insert one (exFAT) and come back.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Storage.Volume cur = Storage.volumeOf(this, data.root);
+        String[] names = new String[vols.size()];
+        for (int i = 0; i < vols.size(); i++) {
+            Storage.Volume v = vols.get(i);
+            names[i] = v.name + (cur != null && v.dir.equals(cur.dir) ? "  (now)" : "") + " · "
+                    + DataCheck.size(v.free()) + " free" + (DataCheck.hasData(v.gameFolder()) ? " · holds the game" : "");
+        }
+        new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+                .setTitle("Game folder")
+                .setItems(names, (d, w) -> folderChosen(vols.get(w), cur))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void folderChosen(Storage.Volume to, Storage.Volume cur) {
+        if (cur != null && to.dir.equals(cur.dir)) return;
+        File dest = to.gameFolder();
+        boolean ownFolder = data.root.equals(DataCheck.ownRoot(this));
+        if (DataCheck.hasData(dest)) {
+            new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+                    .setTitle("Use the game on " + to.name + "?")
+                    .setMessage(to.name + "/" + DataCheck.TITLE + " already holds the game data: the game runs from "
+                            + "there, with the saves and settings in it. " + data.rootLabel() + " stays as it is.")
+                    .setPositiveButton("Use it", (d, w) -> switchFolder(to))
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        } else if (data.folderExists && DataCheck.hasData(data.root) && !ownFolder) {
+            final long total = Storage.size(data.root), free = to.free();
+            String size = DataCheck.size(total);
+            AlertDialog.Builder b = new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+                    .setTitle("Move the game to " + to.name + "?");
+            if (free < total + (256L << 20)) {
+                b.setMessage("The game folder is " + size + " and " + to.name + " has " + DataCheck.size(free)
+                        + " free. Free some space there first.").setPositiveButton("Close", null).show();
+                return;
+            }
+            b.setMessage("This copies the game folder (" + size + ": the game data, your saves, settings and shader "
+                    + "cache) to " + to.name + "/" + DataCheck.TITLE + ", then removes it from " + data.rootLabel()
+                    + ". About " + Math.max(1, total / (40L << 20) / 60) + " minutes on a fast card; if it stops "
+                    + "half way, the game stays where it is. Keep the phone charging.")
+                    .setPositiveButton("Move", (d, w) -> moveFolder(to))
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        } else {
+            switchFolder(to);
+            Toast.makeText(this, (needsSetup() ? "SET UP puts the game on " : "The game folder is now on ") + to.name
+                    + ".", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void switchFolder(Storage.Volume to) {
+        try {
+            Storage.choose(this, to);
+        } catch (IOException e) {
+            Toast.makeText(this, "Could not change the game folder: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+        refresh();
+    }
+
+    private void moveFolder(Storage.Volume to) {
+        final Storage.Move move = new Storage.Move(data.root, to.gameFolder());
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(24), dp(12), dp(24), 0);
+        final TextView what = Ui.text(this, "Starting", 13, Ui.MUTED, false);
+        box.addView(what);
+        final android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null,
+                android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(1000);
+        box.addView(bar, new LinearLayout.LayoutParams(-1, dp(24)));
+        final AlertDialog dialog = new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+                .setTitle("Moving the game to " + to.name)
+                .setView(box)
+                .setCancelable(false)
+                .setNegativeButton("Stop", (d, w) -> move.cancelled = true)
+                .show();
+        new Thread(() -> {
+            String error = null;
+            try {
+                move.run(this, to, (done, total, file) -> ui.post(() -> {
+                    bar.setProgress(total > 0 ? (int) (1000L * done / total) : 0);
+                    what.setText(DataCheck.size(done) + " of " + DataCheck.size(total) + " · " + file);
+                }));
+            } catch (IOException e) {
+                error = e.getMessage();
+            }
+            final String err = error;
+            ui.post(() -> {
+                dialog.dismiss();
+                refresh();
+                Toast.makeText(this, err == null ? "The game is now on " + to.name + "."
+                        : "Not moved: " + err + ". The game is still in " + data.rootLabel() + ".",
+                        Toast.LENGTH_LONG).show();
+            });
+        }, "b3-move").start();
     }
 
     private boolean needsSetup() {

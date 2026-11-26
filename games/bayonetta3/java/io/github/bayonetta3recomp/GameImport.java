@@ -20,7 +20,8 @@ import java.security.MessageDigest;
 // Open while the launcher is in front (the computer starts it first).
 //
 // Protocol, one line each, UTF-8, ending in \n: the app sends "READY 1"; the computer sends
-//   "B3-LIB 1 <bytes> <sha256 hex>" and that many bytes; the app answers "OK <bytes>" or "ERR <reason>".
+//   "B3-LIB 1 <bytes> <sha256 hex>" and that many bytes; the app answers "OK <bytes>" or "ERR <reason>". Or the
+//   computer sends "WHERE 1"; the app answers "ROOT <path>": the game folder the data goes to (Settings > Game folder).
 final class GameImport {
     static final String SOCKET = "io.github.bayonetta3recomp.import";
     private static final int SHELL_UID = 2000;
@@ -83,6 +84,11 @@ final class GameImport {
         String answer;
         if (head.length == 4 && head[0].equals("B3-LIB") && head[1].equals("1")) {
             answer = receiveLibrary(in, Long.parseLong(head[2]), head[3]);
+        } else if (head.length == 2 && head[0].equals("WHERE") && head[1].equals("1")) {
+            answer = "ROOT " + DataCheck.target(context).getAbsolutePath();  // Internal storage or the SD card
+            out.write((answer + "\n").getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            return;
         } else {
             answer = "ERR unknown request";
         }

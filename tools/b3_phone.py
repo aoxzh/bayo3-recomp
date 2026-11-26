@@ -8,7 +8,8 @@ APK carries for its on-phone setup (assets/ondevice.zip: the NDK sysroot, clang'
 and its headers; no game code), then:
 
   1. installs the release APK, unchanged (adb install; an APK never carries game code, so it updates like any other),
-  2. copies the game's data to Internal storage/Bayonetta 3 (adb push; only what is missing or changed),
+  2. copies the game's data to Internal storage/Bayonetta 3, or the SD card picked in the app's Settings > Game folder
+     (adb push; only what is missing or changed),
   3. hands the game's library to the app (adb forward to the launcher's local socket, games/.../GameImport.java),
      which keeps it in its private folder, where the on-phone setup would have put it.
 
@@ -320,10 +321,10 @@ def push_tree(phone, local, remote, label):
     say(f'phone: {label}: done in {round(time.time() - started)} s')
 
 
-def send_library(phone, lib):
-    """The library to the launcher's socket (GameImport.java), which only adb's shell user can reach."""
+def talk(phone, exchange):
+    """One request to the launcher's socket (GameImport.java), which only adb's shell user can reach: the launcher is
+    opened, and once the app said READY 1, `exchange(sock, reader)` runs and its result is returned."""
     phone.shell(f'am start -n {PACKAGE}/.LauncherActivity', check=False)
-    digest, size = sha256(lib), lib.stat().st_size
     port = None
     for attempt in range(20):
         time.sleep(1 if attempt else 2)
@@ -333,20 +334,38 @@ def send_library(phone, lib):
                 f = s.makefile('rb')
                 if f.readline().strip() != b'READY 1':
                     raise OSError('no answer')
-                say(f'phone: handing the game to the app ({size / 1e6:.0f} MB)')
-                s.sendall(f'B3-LIB 1 {size} {digest}\n'.encode())
-                with open(lib, 'rb') as data:
-                    s.sendfile(data)
-                answer = f.readline().decode(errors='replace').strip()
-                if not answer.startswith('OK'):
-                    raise SetupError(f'the app refused the game: {answer}')
-                return
+                return exchange(s, f)
         except (OSError, ValueError):
             continue
         finally:
             if port:
                 phone.run('forward', '--remove', f'tcp:{port}', check=False)
     raise SetupError('the app did not answer: unlock the phone, open "Bayonetta 3 Recomp" and run this again')
+
+
+def game_folder(phone):
+    """Where the app keeps the game's data: Internal storage/Bayonetta 3, or the SD card picked in its Settings > Game
+    folder (the app answers WHERE 1 with ROOT <path>)."""
+    def ask(s, f):
+        s.sendall(b'WHERE 1\n')
+        answer = f.readline().decode(errors='replace').strip()
+        return answer[5:] if answer.startswith('ROOT /') else None
+    return talk(phone, ask) or REMOTE
+
+
+def send_library(phone, lib):
+    """The library to the launcher's socket (GameImport.java)."""
+    digest, size = sha256(lib), lib.stat().st_size
+
+    def hand(s, f):
+        say(f'phone: handing the game to the app ({size / 1e6:.0f} MB)')
+        s.sendall(f'B3-LIB 1 {size} {digest}\n'.encode())
+        with open(lib, 'rb') as data:
+            s.sendfile(data)
+        answer = f.readline().decode(errors='replace').strip()
+        if not answer.startswith('OK'):
+            raise SetupError(f'the app refused the game: {answer}')
+    talk(phone, hand)
 
 
 # The minimum a phone needs, as the app's DeviceCheck.java (keep the two in step): below it the game does not start or
@@ -435,10 +454,13 @@ def phone_command(a):
         return 0
     install_app(phone, apk)
     _, romfs = b3_win.local_layout(settings, 'b3')
-    phone.shell(f'mkdir -p "{REMOTE}/user"')
-    push_tree(phone, WIN / 'cpu/b3/analysis', f'{REMOTE}/analysis', 'code images')
-    push_tree(phone, WIN / 'shaders/b3/spirv', f'{REMOTE}/spirv', 'shaders')
-    push_tree(phone, romfs, f'{REMOTE}/extract/romfs', 'game files (RomFS)')
+    remote = game_folder(phone)
+    if remote != REMOTE:
+        say(f"phone: the game folder is {remote} (the app's Settings > Game folder)")
+    phone.shell(f'mkdir -p "{remote}/user"')
+    push_tree(phone, WIN / 'cpu/b3/analysis', f'{remote}/analysis', 'code images')
+    push_tree(phone, WIN / 'shaders/b3/spirv', f'{remote}/spirv', 'shaders')
+    push_tree(phone, romfs, f'{remote}/extract/romfs', 'game files (RomFS)')
     send_library(phone, lib)
     say('phone: done. Open "Bayonetta 3 Recomp" on the phone and tap START.')
     return 0

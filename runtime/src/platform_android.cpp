@@ -618,7 +618,10 @@ extern "C" void android_main(android_app* app) {
         std::getline(f, chosen);
         while (!chosen.empty() && (chosen.back() == '\r' || chosen.back() == '\n' || chosen.back() == ' ')) chosen.pop_back();
     }
-    const std::string shared = !chosen.empty() ? chosen : std::string("/storage/emulated/0/") + nx::game::kInfo.title;
+    // The picked folder (Internal storage or an SD card, the launcher's Settings > Game folder), else Internal
+    // storage/<title>.
+    const std::string internal = std::string("/storage/emulated/0/") + nx::game::kInfo.title;
+    const std::string shared = !chosen.empty() ? chosen : internal;
     const std::string own = app->activity->externalDataPath ? app->activity->externalDataPath : shared;
     // Logged to logcat before the root is known (the log file lives in it, so nx::log cannot be used yet): a black
     // screen at startup, or a settings dialog that never closes, is usually this line saying which folder holds the
@@ -644,8 +647,10 @@ extern "C" void android_main(android_app* app) {
             }
         }
     }
-    // The picked folder wins over the app's own one; else the own one (adb push), else Internal storage/<title>.
-    g_root = !chosen.empty() && has_data(chosen) ? chosen : has_data(own) ? own : shared;
+    // The picked folder wins over the app's own one; else the own one (adb push), else Internal storage/<title> when
+    // it holds the data (Send to my phone fills that one), else the picked folder. DataCheck.java makes the same choice.
+    g_root = !chosen.empty() && has_data(chosen) ? chosen : has_data(own) ? own
+           : chosen != internal && has_data(internal) ? internal : shared;
     // config.txt's NX_* lines become environment variables (the NVN layer reads its switches with getenv), without
     // overriding a variable already set. Android defaults: handheld (720p, the lighter GPU load).
     {

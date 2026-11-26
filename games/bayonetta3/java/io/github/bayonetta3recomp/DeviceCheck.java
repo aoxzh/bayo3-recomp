@@ -54,13 +54,31 @@ final class DeviceCheck {
         else if (khz > 0 && khz < 2_800_000)
             r.weak.add(String.format(Locale.ROOT, "Fastest CPU core %.1f GHz: expect under 30 fps in fights", khz / 1e6));
         if (gpu != null) gpuRule(gpu, r);
-        if (forSetup) {
-            long free = new StatFs(Environment.getExternalStorageDirectory().getPath()).getAvailableBytes();
-            if (free < 6 * GB)
-                r.below.add(String.format(Locale.ROOT, "%.1f GB free in Internal storage (the setup needs about 6 GB)",
-                        free / (double) GB));
-        }
+        if (forSetup) freeSpace(c, r);
         return r;
+    }
+
+    // The setup's work (the translated code, the objects) is in the app's own files on Internal storage: about 6 GB.
+    // The game folder (Settings > Game folder) gets the shaders and code copies, about 1 GB, and the dump moved in: a
+    // rename on the same storage, a copy taking the dump's size from another one (the SD card's dump into Internal
+    // storage, or the other way).
+    static void freeSpace(Context c, Result r) {
+        Storage.Volume home = Storage.volumeOf(c, DataCheck.target(c));
+        long dump = Setup.crossVolumeBytes(c);
+        long internal = new StatFs(Environment.getExternalStorageDirectory().getPath()).getAvailableBytes();
+        boolean apart = home != null && home.removable;
+        long needInternal = 6 * GB + (apart ? 0 : dump);
+        if (internal < needInternal)
+            r.below.add(String.format(Locale.ROOT, "%.1f GB free in Internal storage (the setup needs about %.0f GB%s)",
+                    internal / (double) GB, needInternal / (double) GB, dump > 0 && !apart
+                            ? ", with the dump copied in from the other storage" : ""));
+        if (apart) {
+            long free = home.free(), need = 1 * GB + dump;
+            if (free < need)
+                r.below.add(String.format(Locale.ROOT, "%.1f GB free on %s (the game folder there needs about %.0f GB%s)",
+                        free / (double) GB, home.name, need / (double) GB, dump > 0
+                                ? ", with the dump copied in from Internal storage" : ""));
+        }
     }
 
     // The GPU from its GLES renderer name (ChipInfo.gpu()).

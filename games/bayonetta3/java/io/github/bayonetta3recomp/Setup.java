@@ -20,8 +20,8 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-// The on-device setup (an APK made by android/build_ondevice_apk.py): the player's own dump in Internal storage/
-// Bayonetta 3/dump becomes the game on the phone, no PC. The APK carries tools only, never game code:
+// The on-device setup (an APK made by android/build_ondevice_apk.py): the player's own dump (Bayonetta 3/dump, Download,
+// ... on Internal storage or the SD card) becomes the game on the phone, no PC. The APK carries tools only, never game code:
 //   lib/arm64-v8a/        clang, lld, python, the shader translator, spirv-val, the game loader (libb3loader.so)
 //   assets/ondevice.zip   the sysroot, clang's headers, the runtime archive, Python's library and this project's
 //                         tools, unpacked once per APK version into <files>/b3
@@ -58,19 +58,30 @@ final class Setup {
 
     static File gameLibrary(Context c) { return new File(c.getFilesDir(), "game/libbayonetta3.so"); }
 
-    static File dumpFolder() {
-        File found = findDump();
-        return found != null ? found : new File(DataCheck.sharedRoot(), "dump");
+    static File dumpFolder(Context c) {
+        File found = findDump(c);
+        return found != null ? found : new File(DataCheck.target(c), "dump");
     }
 
-    // Where the player's extraction is: Bayonetta 3/dump first, then Download, Documents and the top of Internal
-    // storage, a few folder levels down; any folder holding an ExeFS (main) and a RomFS (.pkz files), in any of the
-    // layouts tools/b3_dump.py resolves (ExeFS/RomFS in any case, a folder level more, romfs/romfs). The setup then
-    // moves the files from there into the game's folder (the same storage: no copy).
-    static File findDump() {
-        File sd = android.os.Environment.getExternalStorageDirectory();
-        File[] roots = {new File(DataCheck.sharedRoot(), "dump"), new File(sd, "Download"), new File(sd, "Documents"),
-                        sd};
+    // Where the player's extraction is: on the game folder's own volume first (Internal storage or the SD card picked
+    // in Settings), then on the others; on each, Bayonetta 3/dump, then Download, Documents and the top, a few folder
+    // levels down; any folder holding an ExeFS (main) and a RomFS (.pkz files), in any of the layouts tools/b3_dump.py
+    // resolves (ExeFS/RomFS in any case, a folder level more, romfs/romfs). The setup then moves the files from there
+    // into the game's folder: a rename on the same volume, a copy (and as much free space) from another one.
+    static File findDump(Context c) {
+        File target = DataCheck.target(c);
+        List<Storage.Volume> order = new ArrayList<>();
+        Storage.Volume home = Storage.volumeOf(c, target);
+        if (home != null) order.add(home);
+        for (Storage.Volume v : Storage.volumes(c)) if (home == null || !v.dir.equals(home.dir)) order.add(v);
+        List<File> roots = new ArrayList<>();
+        roots.add(new File(target, "dump"));
+        for (Storage.Volume v : order) {
+            roots.add(new File(v.gameFolder(), "dump"));
+            roots.add(new File(v.dir, "Download"));
+            roots.add(new File(v.dir, "Documents"));
+            roots.add(v.dir);
+        }
         for (File r : roots) {
             File hit = search(r, 0);
             if (hit != null) return hit;
@@ -87,7 +98,7 @@ final class Setup {
         for (File k : kids) {
             String n = k.getName();
             if (!k.isDirectory() || n.startsWith(".") || n.equalsIgnoreCase("Android")
-                    || n.equals(DataCheck.TITLE) && depth == 0 && dir.equals(android.os.Environment.getExternalStorageDirectory()))
+                    || n.equals(DataCheck.TITLE) && depth == 0)  // the game folder itself: its dump/ is searched first
                 continue;
             File hit = search(k, depth + 1);
             if (hit != null) return hit;
@@ -121,12 +132,26 @@ final class Setup {
 
     // What is missing, in plain words, or null when an extraction was found (b3_win.py checks the files themselves:
     // version 1.2.0, a complete RomFS).
-    static String dumpProblem() {
-        if (findDump() != null) return null;
+    static String dumpProblem(Context c) {
+        if (findDump(c) != null) return null;
         return "no extracted game found. Extract the ExeFS and the RomFS of your Bayonetta 3 (update 1.2.0 "
                 + "installed) with your emulator (Ryujinx: right-click > Extract Data > ExeFS, then RomFS; Eden / "
                 + "yuzu: Dump RomFS > Full, and Dump ExeFS) and copy the folder with exefs and romfs to the phone, "
-                + "for example into Internal storage/" + DataCheck.TITLE + "/dump or Download.";
+                + "for example into " + DataCheck.TITLE + "/dump or Download on the storage the game goes to ("
+                + where(c) + ").";
+    }
+
+    // "Internal storage" or the SD card's name: where the setup puts the game.
+    static String where(Context c) {
+        Storage.Volume v = Storage.volumeOf(c, DataCheck.target(c));
+        return v != null ? v.name : DataCheck.target(c).getPath();
+    }
+
+    // The dump's size when it is on another volume than the game folder (the move is then a copy), else 0.
+    static long crossVolumeBytes(Context c) {
+        File dump = findDump(c);
+        if (dump == null || Storage.sameVolume(c, dump, DataCheck.target(c))) return 0;
+        return Storage.size(dump);
     }
 
     static synchronized Setup current() { return current; }
@@ -175,7 +200,9 @@ final class Setup {
     }
 
     private void run(Context c) {
-        File log = new File(DataCheck.sharedRoot(), "setup.log");
+        File root = DataCheck.target(c);
+        root.mkdirs();
+        File log = new File(root, "setup.log");
         try (Writer w = new FileWriter(log, true)) {
             File b3 = new File(c.getFilesDir(), "b3");
             unpack(c, b3);
@@ -186,7 +213,7 @@ final class Setup {
             cmd.add(new File(b3, "repo/tools/b3_win.py").getPath());
             cmd.add("setup");
             cmd.add("--dump");
-            cmd.add(dumpFolder().getPath());
+            cmd.add(dumpFolder(c).getPath());
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.directory(new File(b3, "repo"));
             pb.redirectErrorStream(true);
@@ -197,7 +224,7 @@ final class Setup {
             env.put("HOME", b3.getPath());
             env.put("TMPDIR", c.getCacheDir().getPath());
             env.put("B3_ANDROID_LIB", lib);
-            env.put("B3_ANDROID_DATA", DataCheck.sharedRoot().getPath());
+            env.put("B3_ANDROID_DATA", root.getPath());  // Internal storage/Bayonetta 3 or the SD card's
             env.put("B3_ANDROID_GAME", gameLibrary(c).getParent());
             env.put("B3_WIN_ROOT", new File(b3, "win").getPath());
             env.put("B3_TOOLSET", new File(b3, "toolset").getPath());

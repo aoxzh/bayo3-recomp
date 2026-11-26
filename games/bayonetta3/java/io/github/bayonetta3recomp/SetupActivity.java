@@ -93,7 +93,7 @@ public final class SetupActivity extends Activity {
             finish();
             return;
         }
-        String problem = Setup.dumpProblem();
+        String problem = Setup.dumpProblem(this);
         if (problem != null) {
             show();
             return;
@@ -107,18 +107,20 @@ public final class SetupActivity extends Activity {
     }
 
     private void show() {
-        String problem = Setup.dumpProblem();
+        String problem = Setup.dumpProblem(this);
+        String where = Setup.where(this);
         detail.setText("Copy the exefs and romfs folders you extracted from your own Bayonetta 3 (update 1.2.0) with "
-                + "your emulator to the phone: Internal storage/" + DataCheck.TITLE + "/dump, or anywhere in Download "
-                + "or Documents (the setup finds them). The setup moves them into the game's folder (no copy), "
-                + "translates the game's code and shaders and compiles them here: about 30 to 60 minutes and 6 GB of "
-                + "free space. Keep the phone charging. You can leave this screen: the setup goes on in the "
+                + "your emulator to the phone: " + DataCheck.TITLE + "/dump, or anywhere in Download or Documents, "
+                + "on " + where + " (the setup finds them; Settings > Game folder picks Internal storage or an SD "
+                + "card). The setup moves them into the game's folder on " + where + " (no copy when they are on "
+                + "the same storage), translates the game's code and shaders and compiles them here: about 30 to 60 "
+                + "minutes and 6 GB of free space in Internal storage. Keep the phone charging. You can leave this screen: the setup goes on in the "
                 + "background, its progress in the notification; if it stops, Start setup carries on where it left "
                 + "off. One small file is downloaded (the Kraken decoder's source, which may not ship in the APK); "
                 + "nothing leaves the phone.\n\nFaster: a computer that has set the game up builds it for the phone "
                 + "in a few minutes and copies it over USB (the desktop launcher's Send to my phone).");
         if (setup == null) {
-            status.setText(problem == null ? "Ready to start · game files found in " + Setup.dumpFolder() : "Not yet: " + problem);
+            status.setText(problem == null ? "Ready to start · game files found in " + Setup.dumpFolder(this) : "Not yet: " + problem);
             status.setTextColor(problem == null ? Ui.TEXT : Ui.RED);
             bar.setProgress(0);
             log.setText("");

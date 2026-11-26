@@ -11,8 +11,8 @@ import java.util.List;
 import java.util.Locale;
 
 // The data folder and what the game needs in it, the same choice android_main makes (runtime/src/platform_android.cpp):
-// the folder picked earlier (<files>/data_root.txt) if it holds the data, else the app's own external files folder if it
-// does, else Internal storage/Bayonetta 3.
+// the folder picked in Settings (<files>/data_root.txt, Storage.java) if it holds the data, else the app's own external
+// files folder if it does, else Internal storage/Bayonetta 3 if it does, else the picked folder (the setup's target).
 final class DataCheck {
     static final String TITLE = "Bayonetta 3";
 
@@ -23,6 +23,7 @@ final class DataCheck {
 
     File root;
     boolean shared;          // Internal storage/Bayonetta 3 (needs all-files access)
+    String volume;           // "Internal storage", "SD card", ...: where root is, null for the app's own folder
     boolean folderExists;
     final List<Item> missing = new ArrayList<>();
     long cacheBytes;         // pipelines_<vendor>_<device>.bin, nvn_pipeline_cache.cpp
@@ -36,23 +37,41 @@ final class DataCheck {
 
     static File ownRoot(Context c) { return c.getExternalFilesDir(null); }
 
-    static File chooseRoot(Context c) {
-        File chosen = null;
-        try (BufferedReader r = new BufferedReader(new FileReader(new File(c.getFilesDir(), "data_root.txt")))) {
+    // The folder picked in Settings (Storage.java: Internal storage or an SD card), or null for the default.
+    static File chosen(Context c) {
+        try (BufferedReader r = new BufferedReader(new FileReader(Storage.choiceFile(c)))) {
             String line = r.readLine();
-            if (line != null && !line.trim().isEmpty()) chosen = new File(line.trim());
+            if (line != null && !line.trim().isEmpty()) return new File(line.trim());
         } catch (Exception ignored) {
         }
+        return null;
+    }
+
+    // Where the setup puts the game: the picked folder, else Internal storage/Bayonetta 3.
+    static File target(Context c) {
+        File chosen = chosen(c);
+        return chosen != null ? chosen : sharedRoot();
+    }
+
+    // Where the game runs from: the picked folder if it holds the data, else the app's own folder if it does (adb
+    // push), else Internal storage/Bayonetta 3 if it does (Send to my phone fills that one), else the setup's target.
+    static File chooseRoot(Context c) {
+        File chosen = chosen(c);
         if (chosen != null && hasData(chosen)) return chosen;
         File own = ownRoot(c);
         if (hasData(own)) return own;
-        return sharedRoot();
+        if (hasData(sharedRoot())) return sharedRoot();
+        return target(c);
     }
 
     static DataCheck run(Context c) {
         DataCheck d = new DataCheck();
         d.root = chooseRoot(c);
         d.shared = d.root.equals(sharedRoot());
+        Storage.Volume v = d.root.equals(ownRoot(c)) ? null : Storage.volumeOf(c, d.root);
+        d.volume = v != null ? v.name : null;
+        if (v != null && v.removable) d.label = v.name + "/" + DataCheck.TITLE;
+        else if (v == null && !d.root.equals(ownRoot(c)) && !d.shared) d.label = d.root.getAbsolutePath() + " (not mounted?)";
         d.folderExists = d.root.isDirectory();
         if (!d.folderExists) return d;
         for (String m : new String[] {"main", "subsdk0", "sdk"}) {
@@ -75,7 +94,10 @@ final class DataCheck {
     }
 
     // "Internal storage/Bayonetta 3" for the shared folder, else the path.
+    private String label;
+
     String rootLabel() {
+        if (label != null) return label;
         return shared ? "Internal storage/" + TITLE : root.getAbsolutePath();
     }
 

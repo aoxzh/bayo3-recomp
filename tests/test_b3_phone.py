@@ -78,6 +78,35 @@ def main():
         below, weak = rules(12_000_000_000, 3_200_000, 0x403000, gpu)
         got = 'below' if below else 'weak' if weak else 'ok'
         check(got == want, f'{gpu}: {got}, expected {want}')
+
+    # Where the data goes: the app's answer to WHERE 1 (GameImport.java), Internal storage when it has none.
+    import io
+
+    class FakeSocket:
+        def __init__(self):
+            self.sent = b''
+
+        def sendall(self, data):
+            self.sent += data
+
+    def answering(line):
+        def talk(phone, exchange):
+            s = FakeSocket()
+            got = exchange(s, io.BytesIO(line))
+            check(s.sent == b'WHERE 1\n', f'game_folder sends WHERE 1, not {s.sent!r}')
+            return got
+        return talk
+
+    real = b3_phone.talk
+    try:
+        b3_phone.talk = answering(b'ROOT /storage/1234-ABCD/Bayonetta 3\n')
+        got = b3_phone.game_folder(None)
+        check(got == '/storage/1234-ABCD/Bayonetta 3', f'the SD card folder the app names is used: {got}')
+        b3_phone.talk = answering(b'ERR unknown request\n')  # an app from before Settings > Game folder
+        got = b3_phone.game_folder(None)
+        check(got == b3_phone.REMOTE, f'an app without the answer means Internal storage: {got}')
+    finally:
+        b3_phone.talk = real
     if failures:
         print(f'b3_phone: {len(failures)} failure(s)')
         return 1
