@@ -35,6 +35,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import b3_launcher_config as cfg  # noqa: E402
+from b3_i18n import _  # noqa: E402
 
 # ---- the look ---------------------------------------------------------------------------------------------------
 # Taken from the background art (tools/launcher_assets/background.jpg): a rain-dark night city, cyan neon for focus
@@ -504,7 +505,7 @@ class Toggle(tk.Frame):
         d = h - px(8)
         x = w - px(4) - d if on else px(4)
         c.create_oval(x, px(4), x + d, px(4) + d, fill=PANEL if on else MUTED, outline='')
-        self.word.configure(text='On' if on else 'Off', fg=GOLD if on else MUTED)
+        self.word.configure(text=_('On') if on else _('Off'), fg=GOLD if on else MUTED)
 
 
 class Choice(tk.Frame):
@@ -646,6 +647,7 @@ class Launcher(tk.Tk):
         self.task_lines = queue.Queue()
         self.task_log = []
         self.task_step, self.task_done, self.task_total = '', 0, 1
+        self.exit_text = None  # the game's last exit, kept on the home screen until something else is said
 
         _pick_fonts(self)    # before any widget: every font and canvas length below reads the result
         self.backdrop = Backdrop()
@@ -691,19 +693,19 @@ class Launcher(tk.Tk):
             self.focusable.append(widget)
             target = widget.entry if isinstance(widget, Field) else widget
             target.bind('<FocusIn>', lambda _e, w=widget: self._focus_moved(w), add='+')
-        self.save_button = Button(self.canvas, 'Save', self.save, look='outline')
-        self.reset_button = Button(self.canvas, 'Reset to defaults', self.reset, look='ghost')
+        self.save_button = Button(self.canvas, _('Save'), self.save, look='outline')
+        self.reset_button = Button(self.canvas, _('Reset to defaults'), self.reset, look='ghost')
         self.save_item = self.canvas.create_window(0, 0, window=self.save_button, anchor='e', state='hidden')
         self.reset_item = self.canvas.create_window(0, 0, window=self.reset_button, anchor='e', state='hidden')
         # The Mods tab's own actions, where Save and Reset are on the other tabs.
         self.mod_actions = []
-        for text, command, look in (('Add mod (.zip)', self._add_mod_zip, 'outline'),
-                                    ('Add folder', self._add_mod_folder, 'ghost'),
-                                    ('Open mods folder', self._open_mods, 'ghost')):
+        for text, command, look in ((_('Add mod (.zip)'), self._add_mod_zip, 'outline'),
+                                    (_('Add folder'), self._add_mod_folder, 'ghost'),
+                                    (_('Open mods folder'), self._open_mods, 'ghost')):
             button = Button(self.canvas, text, command, look=look)
             self.mod_actions.append((button, self.canvas.create_window(0, 0, window=button, anchor='e',
                                                                        state='hidden')))
-        self.shortcut_button = Button(self.canvas, 'Desktop shortcut', self._make_shortcut, look='ghost')
+        self.shortcut_button = Button(self.canvas, _('Desktop shortcut'), self._make_shortcut, look='ghost')
         self.shortcut_item = self.canvas.create_window(0, 0, window=self.shortcut_button, anchor='e', state='hidden')
 
     def _widget(self, setting):
@@ -715,13 +717,13 @@ class Launcher(tk.Tk):
         var = tk.StringVar()
         self.vars[setting.key] = var
         if setting.kind == 'choice':
-            labels = [label for _v, label in setting.choices]
+            labels = [_(label) for _v, label in setting.choices]
             box = Choice(self.canvas, var, labels, width=min(46, max(14, max(len(t) for t in labels) + 3)))
             box.on_change = self._refresh_status
             return box
         var.trace_add('write', lambda *_a: self._refresh_status())
         return Field(self.canvas, var, width=12 if setting.kind == 'int' else 30,
-                     placeholder=setting.hint or 'Default')
+                     placeholder=setting.hint or _('Default'))
 
     # -- layout -------------------------------------------------------------------------------------------------------
     def _schedule_layout(self):
@@ -767,14 +769,14 @@ class Launcher(tk.Tk):
             c.create_image(0, 0, image=self.backdrop.home(w, h), anchor='nw', tags=('chrome', 'backdrop'))
         left = px(72)
         self._brand(left, px(70))
-        self._text(left, px(178), 'Native build of the Switch game · bring your own game files', (UI, 10), MUTED)
+        self._text(left, px(178), _('Native build of the Switch game · bring your own game files'), (UI, 10), MUTED)
         # The menu: large serif words, the selected one gold with a cyan diamond, as a pad-first menu reads.
-        labels = {'play': 'Stop game' if self.proc is not None else 'Start game', 'settings': 'Settings',
-                  'log': 'Hide game log' if self.log_shown else 'Game log', 'report': 'Report a bug',
-                  'quit': 'Quit',
-                  'setup': 'Setting up…' if self.task else 'Set up from my dump',
-                  'rebuild': 'Rebuilding…' if self.task else 'Rebuild',
-                  'phone': 'Sending to the phone…' if self.task else 'Send to my phone'}
+        labels = {'play': _('Stop game') if self.proc is not None else _('Start game'), 'settings': _('Settings'),
+                  'log': _('Hide game log') if self.log_shown else _('Game log'), 'report': _('Report a bug'),
+                  'quit': _('Quit'),
+                  'setup': _('Setting up…') if self.task else _('Set up from my dump'),
+                  'rebuild': _('Rebuilding…') if self.task else _('Rebuild'),
+                  'phone': _('Sending to the phone…') if self.task else _('Send to my phone')}
         step = px(54)
         menu = self._menu()
         top = h - px(84) - step * (len(menu) - 1)
@@ -811,7 +813,7 @@ class Launcher(tk.Tk):
             c.create_rectangle(right - bar_w, bar_y, right, bar_y + px(6), fill=LINE, outline='', tags=('chrome',))
             done = right - bar_w + int(bar_w * min(1.0, self.task_done / max(1, self.task_total)))
             c.create_rectangle(right - bar_w, bar_y, done, bar_y + px(6), fill=CYAN, outline='', tags=('chrome',))
-        self._text(right, h - px(40), '↑ ↓ choose   ·   Enter / A confirm   ·   Esc quit', (UI, 8), FAINT, anchor='e')
+        self._text(right, h - px(40), _('↑ ↓ choose   ·   Enter / A confirm   ·   Esc quit'), (UI, 8), FAINT, anchor='e')
         if self.log_shown:
             x1, y1 = int(w * 0.46), px(150)
             c.coords(self.log_item, x1, y1)
@@ -827,8 +829,8 @@ class Launcher(tk.Tk):
         else:
             _round_rect(c, x1, y1, x2, y2, radius, fill=PANEL, outline='', tags=('chrome',))
         _round_rect(c, x1, y1, x2, y2, radius, fill='', outline=LINE, width=px(1), tags=('chrome',))
-        self._text(px(64), px(58), 'Settings', (DISPLAY, 26), TEXT)
-        back = self._text(w - px(64), px(60), '‹  Back', (UI, 11, 'bold'), CYAN, anchor='e', tags=('back',))
+        self._text(px(64), px(58), _('Settings'), (DISPLAY, 26), TEXT)
+        back = self._text(w - px(64), px(60), '‹  ' + _('Back'), (UI, 11, 'bold'), CYAN, anchor='e', tags=('back',))
         self._text(c.bbox(back)[0] - px(14), px(60), 'Esc · B', (UI, 8), FAINT, anchor='e')
         c.tag_bind('back', '<Button-1>', lambda _e: self.show_home())
         c.tag_bind('back', '<Enter>', lambda _e: c.configure(cursor='hand2'))
@@ -837,7 +839,7 @@ class Launcher(tk.Tk):
         x, ty = x1 + px(32), y1 + px(32)
         for group in cfg.GROUPS:
             on = group == self.group
-            item = self._text(x, ty, cfg.GROUP_TITLES[group], (UI, 11, 'bold' if on else 'normal'),
+            item = self._text(x, ty, _(cfg.GROUP_TITLES[group]), (UI, 11, 'bold' if on else 'normal'),
                               TEXT if on else MUTED, tags=(f'tab_{group}',))
             bx1, _by1, bx2, _by2 = c.bbox(item)
             if on:
@@ -857,10 +859,10 @@ class Launcher(tk.Tk):
         for i, setting in enumerate(settings):
             mid = top + i * row_h + row_h // 2
             if setting.hint:
-                self._text(x1 + px(32), mid - px(7), setting.label, (UI, 11), TEXT, tags=(f'row_{setting.key}',))
-                self._text(x1 + px(32), mid + px(11), f'Default {setting.hint}', (UI, 8), FAINT)
+                self._text(x1 + px(32), mid - px(7), _(setting.label), (UI, 11), TEXT, tags=(f'row_{setting.key}',))
+                self._text(x1 + px(32), mid + px(11), _('Default {hint}').format(hint=setting.hint), (UI, 8), FAINT)
             else:
-                self._text(x1 + px(32), mid, setting.label, (UI, 11), TEXT, tags=(f'row_{setting.key}',))
+                self._text(x1 + px(32), mid, _(setting.label), (UI, 11), TEXT, tags=(f'row_{setting.key}',))
             c.tag_bind(f'row_{setting.key}', '<Enter>', lambda _e, s=setting: self._show_help(s))
             if i:
                 c.create_line(x1 + px(32), mid - row_h // 2, x2 - px(32), mid - row_h // 2, fill=LINE,
@@ -921,7 +923,8 @@ class Launcher(tk.Tk):
             if mod[0] == name:
                 try:
                     mod[1] = cfg.set_mod(self.root, mod[1], mod[2].get())
-                    self._set_status(f'Mod {name} is {"on" if mod[2].get() else "off"} from the next start.')
+                    self._set_status((_('Mod {name} is on from the next start.') if mod[2].get()
+                                      else _('Mod {name} is off from the next start.')).format(name=name))
                 except OSError as e:
                     self._set_status(f'Mod {name}: {e}', bad=True)
 
@@ -929,16 +932,17 @@ class Launcher(tk.Tk):
         c = self.canvas
         self._read_mods()
         folder = self._short(cfg.mods_dir(self.root))
-        self.help_text = (f'Each folder in {folder} replaces game files by their RomFS path (its romfs/ folder, also '
-                          'one inside an Atmosphere or emulator layout, or the folder itself). Mods apply top to '
-                          'bottom and a lower one wins; ▲ ▼ reorder. Changes apply at the next start. '
-                          'Code patches (.ips, .pchtxt for version 1.2.0) work too: when they change, Play makes the '
-                          'game code again first (a few minutes).')
+        self.help_text = _('Each folder in {folder} replaces game files by their RomFS path (its romfs/ folder, '
+                           'also one inside an Atmosphere or emulator layout, or the folder itself). Mods apply top to '
+                           'bottom and a lower one wins; ▲ ▼ reorder. Changes apply at the next start. Code patches '
+                           '(.ips, .pchtxt for version 1.2.0) work too: when they change, Play makes the game code '
+                           'again first (a few minutes).').format(folder=folder)
         if not self.mods:
-            self._text(x1 + px(32), top + px(24), 'No mods yet.', (UI, 11), TEXT)
-            self._text(x1 + px(32), top + px(52), 'Add a mod from its .zip or folder below (a romfs/ folder for '
-                       'Atmosphere, yuzu or Ryujinx works as it is), or put each mod in its own folder in '
-                       f'{folder}.', (UI, 9), MUTED, width=max(px(200), x2 - x1 - px(64)))
+            self._text(x1 + px(32), top + px(24), _('No mods yet.'), (UI, 11), TEXT)
+            self._text(x1 + px(32), top + px(52), _('Add a mod from its .zip or folder below (a romfs/ folder for '
+                                                    'Atmosphere, yuzu or Ryujinx works as it is), or put each mod in '
+                                                    'its own folder in {folder}.').format(folder=folder),
+                       (UI, 9), MUTED, width=max(px(200), x2 - x1 - px(64)))
             return
         row_h = max(px(36), min(px(48), (bottom - top) // max(1, len(self.mods))))
         c.update_idletasks()
@@ -962,7 +966,7 @@ class Launcher(tk.Tk):
     def _move_mod(self, name, delta):
         try:
             cfg.move_mod(self.root, name, delta)
-            self._set_status(f'Mod {name} moved; the order applies from the next start.')
+            self._set_status(_('Mod {name} moved; the order applies from the next start.').format(name=name))
         except OSError as e:
             self._set_status(f'Mod {name}: {e}', bad=True)
         self.layout()
@@ -972,24 +976,24 @@ class Launcher(tk.Tk):
             return
         try:
             name = cfg.add_mod(self.root, source)
-            self._set_status(f'Mod {name} added; it is on from the next start.')
+            self._set_status(_('Mod {name} added; it is on from the next start.').format(name=name))
         except (OSError, zipfile.BadZipFile) as e:
-            self._set_status(f'Could not add the mod: {e}', bad=True)
+            self._set_status(_('Could not add the mod: {e}').format(e=e), bad=True)
         self.layout()
 
     def _add_mod_zip(self):
-        self._add_mod(filedialog.askopenfilename(parent=self, title='A mod archive',
-                                                 filetypes=[('Zip archives', '*.zip'), ('All files', '*.*')]))
+        self._add_mod(filedialog.askopenfilename(parent=self, title=_('A mod archive'),
+                                                 filetypes=[(_('Zip archives'), '*.zip'), (_('All files'), '*.*')]))
 
     def _add_mod_folder(self):
-        self._add_mod(filedialog.askdirectory(parent=self, title="A mod's folder (its romfs/ or the folder above it)"))
+        self._add_mod(filedialog.askdirectory(parent=self, title=_("A mod's folder (its romfs/ or the folder above it)")))
 
     def _make_shortcut(self):
         try:
             written = cfg.make_shortcut(self.root)
-            self._set_status('Shortcut: ' + ', '.join(self._short(p) for p in written))
+            self._set_status(_('Shortcut: {paths}').format(paths=', '.join(self._short(p) for p in written)))
         except OSError as e:
-            self._set_status(f'Could not make the shortcut: {e}', bad=True)
+            self._set_status(_('Could not make the shortcut: {e}').format(e=e), bad=True)
 
     def _open_mods(self):
         folder = cfg.mods_dir(self.root)
@@ -1000,7 +1004,7 @@ class Launcher(tk.Tk):
             else:
                 subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', str(folder)])
         except OSError as e:
-            self._set_status(f'Could not open {folder}: {e}', bad=True)
+            self._set_status(_('Could not open {folder}: {e}').format(folder=folder, e=e), bad=True)
 
     # -- views ----------------------------------------------------------------------------------------------------
     def show_home(self):
@@ -1077,8 +1081,8 @@ class Launcher(tk.Tk):
             if setting.kind == 'bool':
                 var.set(cfg.is_on(value))
             elif setting.kind == 'choice':
-                labels = [label for v, label in setting.choices]
-                match = [label for v, label in setting.choices if v == value]
+                labels = [_(label) for v, label in setting.choices]
+                match = [_(label) for v, label in setting.choices if v == value]
                 var.set(match[0] if match else labels[0])
             else:
                 var.set(value)
@@ -1089,7 +1093,7 @@ class Launcher(tk.Tk):
         if setting.kind == 'choice':
             label = self.vars[setting.key].get()
             for value, text in setting.choices:
-                if text == label:
+                if _(text) == label:
                     return value
             return ''
         return self.vars[setting.key].get().strip()
@@ -1104,7 +1108,7 @@ class Launcher(tk.Tk):
         return any(self._value_of(s) != self.conf.effective(s) for s in cfg.SETTINGS)
 
     def _ready_text(self):
-        return 'Unsaved changes' if self._dirty() else 'All changes saved'
+        return _('Unsaved changes') if self._dirty() else _('All changes saved')
 
     def _refresh_status(self):
         if not hasattr(self, 'canvas') or self.proc is not None or not self.vars or len(self.vars) < len(cfg.SETTINGS):
@@ -1129,7 +1133,7 @@ class Launcher(tk.Tk):
     def _show_help(self, setting):
         if setting is None:  # a mod's toggle: the tab's own help stays
             return
-        self.help_text = f'{setting.label} — {setting.help}' if setting.help else setting.label
+        self.help_text = f'{_(setting.label)} — {_(setting.help)}' if setting.help else _(setting.label)
         if self.view == 'settings' and getattr(self, 'help_item', None):
             self.canvas.itemconfigure(self.help_item, text=self.help_text)
 
@@ -1137,13 +1141,13 @@ class Launcher(tk.Tk):
         if self.task is not None:
             return self.status_text
         if self.proc is not None:
-            return 'Running' if not self.stopping else 'Stopping…'
+            return _('Running') if not self.stopping else _('Stopping…')
         if self.status_bad:
             return self.status_text
         state = cfg.install_state(self.root)
         if not state['built']:
-            return f'Not built yet · {self._build_hint()}'
-        return self.status_text if self.status_text.startswith(('The game', 'Stopped')) else 'Ready to play'
+            return _('Not built yet · {hint}').format(hint=self._build_hint())
+        return self.status_text if self.status_text == self.exit_text else _('Ready to play')
 
     def _run_colour(self):
         if self.proc is not None:
@@ -1157,22 +1161,23 @@ class Launcher(tk.Tk):
         if problems:
             setting, message = problems[0]
             self.show_group(setting.group)
-            self._set_status(f'{setting.label}: {message}', bad=True)
+            self._set_status(f'{_(setting.label)}: {message}', bad=True)
             self.rows[setting.key][1].focus_set()
             return False
         self.conf.apply(values)
         self.conf.save(self.paths['conf'])
         if not quiet:
-            self._set_status(f'Saved to {self._short(self.paths["conf"])}')
+            self._set_status(_('Saved to {path}').format(path=self._short(self.paths["conf"])))
         return True
 
     def reset(self):
-        if not messagebox.askokcancel('Reset settings', 'Drop every saved setting and go back to the defaults?', parent=self):
+        if not messagebox.askokcancel(_('Reset settings'), _('Drop every saved setting and go back to the defaults?'),
+                                      parent=self):
             return
         cfg.reset_to_defaults(self.conf)
         self.conf.save(self.paths['conf'])
         self._load_values()
-        self._set_status('Defaults restored')
+        self._set_status(_('Defaults restored'))
 
     # -- setup and update (Windows: tools/b3_win.py) ---------------------------------------------------------------
     def run_setup(self):
@@ -1180,23 +1185,23 @@ class Launcher(tk.Tk):
         player's choice checked at once (tools/b3_dump.py), and Start setup only for one that is usable."""
         if self.task is not None:
             return
-        if not self.pc_ok('Set it up'):
+        if not self.pc_ok(_('Set it up')):
             return
         import b3_dump
         win = tk.Toplevel(self, bg=PANEL)
-        win.title('Set up from your game files')
+        win.title(_('Set up from your game files'))
         win.transient(self)
         win.minsize(px(640), px(420))
         pad = {'padx': px(20)}
-        tk.Label(win, text='Set up from your game files', bg=PANEL, fg=TEXT, font=(DISPLAY, 20),
+        tk.Label(win, text=_('Set up from your game files'), bg=PANEL, fg=TEXT, font=(DISPLAY, 20),
                  anchor='w').pack(fill='x', pady=(px(18), px(6)), **pad)
-        tk.Label(win, text=b3_dump.HOW_TO_EXTRACT, bg=PANEL, fg=MUTED, font=(UI, 10), justify='left', anchor='w',
+        tk.Label(win, text=_(b3_dump.HOW_TO_EXTRACT), bg=PANEL, fg=MUTED, font=(UI, 10), justify='left', anchor='w',
                  wraplength=px(760)).pack(fill='x', **pad)
-        tk.Label(win, text='Your game files', bg=PANEL, fg=GOLD, font=(UI, 11, 'bold'),
+        tk.Label(win, text=_('Your game files'), bg=PANEL, fg=GOLD, font=(UI, 11, 'bold'),
                  anchor='w').pack(fill='x', pady=(px(14), px(4)), **pad)
         choices = tk.Frame(win, bg=PANEL)
         choices.pack(fill='x', **pad)
-        verdict = tk.Label(win, text='Looking on this computer…', bg=PANEL, fg=MUTED, font=(UI, 10), justify='left',
+        verdict = tk.Label(win, text=_('Looking on this computer…'), bg=PANEL, fg=MUTED, font=(UI, 10), justify='left',
                            anchor='w', wraplength=px(760))
         verdict.pack(fill='x', pady=(px(8), 0), **pad)
         buttons = tk.Frame(win, bg=PANEL)
@@ -1204,13 +1209,13 @@ class Launcher(tk.Tk):
         picked = tk.StringVar(value='')
         results = {}
 
-        start = tk.Button(buttons, text='Start setup', state='disabled', bg=GOLD, fg=BG, activebackground=GOLD,
+        start = tk.Button(buttons, text=_('Start setup'), state='disabled', bg=GOLD, fg=BG, activebackground=GOLD,
                           relief='flat', font=(UI, 11, 'bold'), padx=px(16), pady=px(6))
         start.pack(side='right')
-        tk.Button(buttons, text='Choose a folder…', bg=FIELD, fg=TEXT, activebackground=HOVER, relief='flat',
+        tk.Button(buttons, text=_('Choose a folder…'), bg=FIELD, fg=TEXT, activebackground=HOVER, relief='flat',
                   font=(UI, 10), padx=px(12), pady=px(6),
                   command=lambda: choose()).pack(side='right', padx=px(10))
-        tk.Button(buttons, text='Cancel', bg=PANEL, fg=MUTED, activebackground=HOVER, relief='flat', font=(UI, 10),
+        tk.Button(buttons, text=_('Cancel'), bg=PANEL, fg=MUTED, activebackground=HOVER, relief='flat', font=(UI, 10),
                   command=win.destroy).pack(side='left')
 
         def show(folder):
@@ -1219,9 +1224,10 @@ class Launcher(tk.Tk):
                 return
             picked.set(folder)
             if r['ok']:
-                verdict.configure(text=f'✓ Ready: {folder}\nThe setup builds the game from these files on this PC '
-                                  '(about half an hour to two hours the first time; closing the launcher pauses '
-                                  'it, Set up carries on).', fg=CYAN)
+                verdict.configure(text='✓ ' + _('Ready: {folder}\nThe setup builds the game from these files on this '
+                                                'PC (about half an hour to two hours the first time; closing the '
+                                                'launcher pauses it, Set up carries on).').format(folder=folder),
+                                  fg=CYAN)
                 start.configure(state='normal')
             else:
                 verdict.configure(text='✗ ' + '\n✗ '.join(r['problems']), fg=RED)
@@ -1236,10 +1242,10 @@ class Launcher(tk.Tk):
                            anchor='w').pack(fill='x')
 
         def choose():
-            folder = filedialog.askdirectory(parent=win, title='The folder with your extracted exefs and romfs')
+            folder = filedialog.askdirectory(parent=win, title=_('The folder with your extracted exefs and romfs'))
             if not folder:
                 return
-            verdict.configure(text='Checking…', fg=MUTED)
+            verdict.configure(text=_('Checking…'), fg=MUTED)
             win.update_idletasks()
             r = b3_dump.inspect(folder)
             if r['folder'] not in results:
@@ -1255,8 +1261,8 @@ class Launcher(tk.Tk):
             if hits:
                 show(hits[0]['folder'])
             else:
-                verdict.configure(text='Nothing found in the usual places. Choose the folder where you extracted '
-                                  'the game.', fg=MUTED)
+                verdict.configure(text=_('Nothing found in the usual places. Choose the folder where you '
+                                         'extracted the game.'), fg=MUTED)
 
         def search():
             try:
@@ -1285,12 +1291,14 @@ class Launcher(tk.Tk):
         if self.task is not None or self.proc is not None:
             return
         if not messagebox.askokcancel(
-                'Send to my phone',
-                'Builds the game for an Android phone on this computer (a few minutes), then installs the app and '
-                'copies the game to the phone over USB (about 15 GB the first time; later only what changed).\n\n'
-                'Before you start: on the phone, turn on USB debugging (Settings > About phone > tap Build number '
-                '7 times, then Developer options > USB debugging), connect it by USB, allow this computer, and keep '
-                'the phone unlocked.', parent=self):
+                _('Send to my phone'),
+                _('Builds the game for an Android phone on this computer (a few minutes), then installs the app and '
+                  'copies the game to the phone over USB (about 15 GB the first time; later only what changed).\n\n'
+                  'Before you start: on the phone, turn on USB debugging (Settings > About phone > tap Build number '
+                  '7 times, then Developer options > USB debugging), connect it by USB, allow this computer, and '
+                  'keep the phone unlocked.\n\nOn the phone, add Bayonetta 3 Recomp to its Game Center, Game Booster '
+                  'or game mode before you play: many phones slow down apps they do not know as games.'),
+                parent=self):
             return
         self.run_task('phone', ['phone'])
 
@@ -1301,10 +1309,10 @@ class Launcher(tk.Tk):
         reasons = [l[len(prefix):] for l in self.task_log if l.startswith(prefix)]
         minimum = next((l[len('b3: phone: '):].split(' Not sent')[0] for l in self.task_log
                         if l.startswith('b3: phone: Minimum:')), '')
-        text = ('The game is very unlikely to run on this phone:\n\n' + '\n'.join(f'• {r}' for r in reasons) +
-                f'\n\n{minimum}\n\nSending it copies about 15 GB, and the game may not start or may show only a '
-                'black screen. Send it anyway?')
-        if messagebox.askyesno('This phone is below the minimum', text, icon='warning', default='no', parent=self):
+        text = (_('The game is very unlikely to run on this phone:') + '\n\n' + '\n'.join(f'• {r}' for r in reasons)
+                + f'\n\n{minimum}\n\n' + _('Sending it copies about 15 GB, and the game may not start or may show '
+                                              'only a black screen. Send it anyway?'))
+        if messagebox.askyesno(_('This phone is below the minimum'), text, icon='warning', default='no', parent=self):
             self.run_task('phone', ['phone', '--anyway'])
 
     def run_task(self, kind, args):
@@ -1319,7 +1327,7 @@ class Launcher(tk.Tk):
                                          cwd=str(self.root), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                          text=True, encoding='utf-8', errors='replace', creationflags=flags)
         except OSError as exc:
-            self._set_status(f'Could not start {kind}: {exc}', bad=True)
+            self._set_status(_('Could not start {kind}: {exc}').format(kind=kind, exc=exc), bad=True)
             return
 
         def read(stream=self.task.stdout, lines=self.task_lines):
@@ -1327,7 +1335,7 @@ class Launcher(tk.Tk):
                 lines.put(line.rstrip())
         threading.Thread(target=read, daemon=True).start()
         self.log_shown = True
-        self._set_status(f'{kind.capitalize()}: starting')
+        self._set_status(_('{kind}: starting').format(kind=_(kind.capitalize())))
         self.layout()
 
     def _task_line(self, line):
@@ -1364,23 +1372,23 @@ class Launcher(tk.Tk):
             code, kind = self.task.returncode, self.task_kind
             self.task = None
             if code == 0 and kind == 'phone':
-                self._set_status('Phone ready: open Bayonetta 3 Recomp on the phone and tap START')
+                self._set_status(_('Phone ready: open Bayonetta 3 Recomp on the phone and tap START'))
             elif code == 3 and kind == 'phone':  # b3_phone.BELOW_MINIMUM: nothing built or sent yet
-                self._set_status('Not sent: the phone is below the minimum', bad=True)
+                self._set_status(_('Not sent: the phone is below the minimum'), bad=True)
                 self.after(50, self.phone_below_minimum)
             elif code == 0:
-                self._set_status(f'{kind.capitalize()} finished: ready to play')
+                self._set_status(_('{kind} finished: ready to play').format(kind=_(kind.capitalize())))
             else:
                 last = next((l for l in reversed(self.task_log) if 'error' in l.lower()), f'exit code {code}')
-                self._set_status(f'{kind.capitalize()} stopped: {last}', bad=True)
+                self._set_status(_('{kind} stopped: {last}').format(kind=_(kind.capitalize()), last=last), bad=True)
             self.menu_index = 0
             self.layout()
         elif changed and self.task is not None and self.task_kind == 'phone':
             last = next((l[len('b3: phone: '):] for l in reversed(self.task_log) if l.startswith('b3: phone: ')),
                         'starting')
-            self._set_status(f'Phone: {last}')
+            self._set_status(_('Phone: {last}').format(last=last))
         elif changed and self.task is not None:
-            self._set_status(f'{self.task_kind.capitalize()}: {self.task_step or "starting"} '
+            self._set_status(f'{_(self.task_kind.capitalize())}: {self.task_step or _("starting")} '
                              f'({self.task_done}/{self.task_total})')
         self.after(300, self._poll_task)
 
@@ -1413,16 +1421,16 @@ class Launcher(tk.Tk):
             return True
         import b3_spec
         if below:
-            text = ('The game is very unlikely to run well on this computer:\n\n' +
-                    '\n'.join(f'• {b}' for b in below) + f'\n\n{b3_spec.MINIMUM}\n\n({summary})\n\n'
-                    f'{what} anyway?')
-            if not messagebox.askyesno('This computer is below the minimum', text, icon='warning', default='no',
+            text = (_('The game is very unlikely to run well on this computer:') + '\n\n' +
+                    '\n'.join(f'• {b}' for b in below) + f'\n\n{_(b3_spec.MINIMUM)}\n\n({summary})\n\n'
+                    + _('{what} anyway?').format(what=what))
+            if not messagebox.askyesno(_('This computer is below the minimum'), text, icon='warning', default='no',
                                        parent=self):
-                self._set_status('Not started: this computer is below the minimum', bad=True)
+                self._set_status(_('Not started: this computer is below the minimum'), bad=True)
                 return False
         else:
-            messagebox.showwarning('This computer may struggle', 'The game runs here, but:\n\n' +
-                                   '\n'.join(f'• {w}' for w in weak) + f'\n\n{b3_spec.MINIMUM}\n\n({summary})',
+            messagebox.showwarning(_('This computer may struggle'), _('The game runs here, but:') + '\n\n' +
+                                   '\n'.join(f'• {w}' for w in weak) + f'\n\n{_(b3_spec.MINIMUM)}\n\n({summary})',
                                    parent=self)
         try:
             state.parent.mkdir(parents=True, exist_ok=True)
@@ -1434,20 +1442,21 @@ class Launcher(tk.Tk):
     def play(self):
         if self.proc is not None or self.task is not None:
             return
-        if not self.pc_ok('Start the game'):
+        if not self.pc_ok(_('Start the game')):
             return
         state = cfg.install_state(self.root)
         if not state['built']:
-            self._set_status(f'Not built yet: {self._short(self.paths["binary"])} ({self._build_hint()})', bad=True)
+            self._set_status(_('Not built yet: {path} ({hint})').format(path=self._short(self.paths["binary"]),
+                                                                        hint=self._build_hint()), bad=True)
             return
         if not state['play']:
-            self._set_status(f'Entry script missing: {self._short(self.paths["play"])}', bad=True)
+            self._set_status(_('Entry script missing: {path}').format(path=self._short(self.paths["play"])), bad=True)
             return
         if not self.save(quiet=True):
             return
         self.status_bad = False
         if cfg.is_on(self.conf.get('headless')):
-            self._set_status('Headless is on: the game runs without a window (turn it off to play)', bad=True)
+            self._set_status(_('Headless is on: the game runs without a window (turn it off to play)'), bad=True)
         env = cfg.launch_env(self.root, self.conf, base=dict(os.environ))
         argv = cfg.launch_argv(self.root)
         try:
@@ -1464,9 +1473,9 @@ class Launcher(tk.Tk):
                 self.proc = subprocess.Popen(argv, cwd=str(self.root), env=env, stdout=subprocess.DEVNULL,
                                              stderr=subprocess.STDOUT, start_new_session=True)
         except OSError as exc:
-            self._set_status(f'Could not start the game: {exc}', bad=True)
+            self._set_status(_('Could not start the game: {exc}').format(exc=exc), bad=True)
             return
-        self._set_status(f'Running · log {self._short(self.paths["log"])}')
+        self._set_status(_('Running · log {path}').format(path=self._short(self.paths["log"])))
         self.layout()
 
     @staticmethod
@@ -1525,7 +1534,7 @@ class Launcher(tk.Tk):
                 os.killpg(os.getpgid(self.proc.pid), 15)   # SIGTERM to the whole group: the handoff child too
         except OSError:
             pass
-        self._set_status('Stopping…')
+        self._set_status(_('Stopping…'))
 
     def make_report(self):
         """The logs, crash reports and settings in one zip for an issue (tools/b3_report.py), and its folder opened."""
@@ -1533,9 +1542,10 @@ class Launcher(tk.Tk):
         try:
             out = b3_report.make_report(self.root)
         except OSError as e:
-            self._set_status(f'Could not make the bug report: {e}', bad=True)
+            self._set_status(_('Could not make the bug report: {e}').format(e=e), bad=True)
             return
-        self._set_status(f'Bug report: {self._short(out)}: drag it into the issue page that opened (no game files)')
+        self._set_status(_('Bug report: {path}: drag it into the issue page that opened (no game files)').format(
+            path=self._short(out)))
         try:
             if sys.platform == 'win32':
                 subprocess.Popen(['explorer', '/select,', str(out)])
@@ -1563,7 +1573,8 @@ class Launcher(tk.Tk):
             code = self.proc.returncode
             was_stop = self.stopping
             self.proc, self.stopping = None, False
-            self._set_status(self._exit_text(code, was_stop))
+            self.exit_text = self._exit_text(code, was_stop)
+            self._set_status(self.exit_text)
             self.layout()
         self.after(400, self._poll_proc)
 
@@ -1573,24 +1584,24 @@ class Launcher(tk.Tk):
         # scripts/run_linux.sh loops), so translate rather than show a raw negative number to the player. On Windows
         # a killed process reports 1, not a negative signal, because there are no POSIX signals to report.
         if code == 0:
-            return 'The game exited'
+            return _('The game exited')
         if code == 86:
-            return 'The game handed off to the next program (code 86)'
+            return _('The game handed off to the next program (code 86)')
         if was_stop and (code < 0 or (code == 1 and os.name == 'nt')):
-            return 'Stopped'
+            return _('Stopped')
         if code < 0:
-            return f'The game was killed (signal {-code})'
-        return f'The game exited (code {code})'
+            return _('The game was killed (signal {signal})').format(signal=-code)
+        return _('The game exited (code {code})').format(code=code)
 
     def _poll_log_once(self):
         try:
             if not self.paths['log'].exists():
-                text = ['(no log yet: it appears once the game has run)']
+                text = [_('(no log yet: it appears once the game has run)')]
             else:
                 text = self.paths['log'].read_text(encoding='utf-8', errors='replace').splitlines()[-80:]
             self.log_view.configure(state='normal')
             self.log_view.delete('1.0', 'end')
-            self.log_view.insert('end', '\n'.join(text) or '(empty log)')
+            self.log_view.insert('end', '\n'.join(text) or _('(empty log)'))
             self.log_view.see('end')
             self.log_view.configure(state='disabled')
         except OSError:
@@ -1614,14 +1625,14 @@ class Launcher(tk.Tk):
 
     def _pad_text(self):
         if self.pad.error:
-            return f'Controller: {self.pad.error}'
+            return _('Controller: {error}').format(error=self.pad.error)
         if self.pad.names:
             return self.pad.names[0]
         if self.pad.fallback is not None:
             # XInput is live and no pad is plugged in: say which path is ready, so a player who later connects one
             # knows it will be picked up (the poll loop re-scans every 1.2 s).
-            return 'No controller yet · XInput ready'
-        return 'No controller · keyboard works'
+            return _('No controller yet · XInput ready')
+        return _('No controller · keyboard works')
 
     def _pad_colour(self):
         return RED if self.pad.error else (CYAN if self.pad.names else FAINT)

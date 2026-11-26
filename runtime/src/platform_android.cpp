@@ -45,6 +45,7 @@
 #include "kernel.h"
 #include "platform.h"
 #include "platform_android.h"
+#include "touch_layout.h"
 
 #ifndef MAP_FIXED_NOREPLACE
 #define MAP_FIXED_NOREPLACE 0x100000
@@ -308,7 +309,10 @@ void screen_size(uint32_t& w, uint32_t& h) {
 // has measured on a phone yet. 0 means "the host cannot tell" (hle_vi.cpp display_period_ns).
 uint32_t screen_refresh_hz() { return 0; }
 const uint8_t* settings_panel(uint32_t, uint32_t&, uint32_t&, uint64_t&) { return nullptr; }  // Windows only
-bool settings_panel_open() { return false; }
+// The in-game menu (GameActivity, opened with the controller's Guide button or Back three times: open_menu below) holds the game as the
+// PC's settings panel does (nvn_queue.cpp): the last frame stays up under the menu until it closes.
+static std::atomic<bool> g_menu_open{false};
+bool settings_panel_open() { return g_menu_open.load(std::memory_order_relaxed); }
 
 // The render size: resolution=WxH if set, else the screen's size times the render scale (render_scale=0.5..1, or
 // the GPU's default), never taller than 1080 (the game's art is made for 720p/1080p; more only costs GPU time).
@@ -508,7 +512,7 @@ void on_cmd(android_app* app, int32_t cmd) {
             audio_pause(true);
             break;
         case APP_CMD_RESUME:
-            audio_pause(false);
+            if (!g_menu_open) audio_pause(false);  // back with the menu still up: silent until it closes
             break;
     }
 }
@@ -572,8 +576,60 @@ extern "C" JNIEXPORT jlong JNICALL Java_io_github_belmantegu_wonderrecomp_GameAc
     return jlong(nx::g_frame.load());
 }
 
+// ---- the in-game menu (games/bayonetta3/java GameActivity) ---------------------------------------------------------
+// The Guide button (platform_android_input.cpp) holds the game and asks the activity for its menu; the menu answers
+// through the two native methods registered below: closed (the game goes on), and the touch controls switched.
+
+namespace {
+
+void JNICALL native_menu(JNIEnv*, jclass, jboolean open) {
+    nx::plat::g_menu_open = open != JNI_FALSE;
+    nx::plat::audio_pause(open != JNI_FALSE);
+    nx::log("android: in-game menu %s", open ? "open" : "closed: the game goes on");
+}
+
+void JNICALL native_touch(JNIEnv*, jclass, jint show) {
+    nx::plat::set_touch_show(int(show));
+    nx::log("android: touch controls %d (in-game menu)", int(show));
+}
+
+// An activity without these methods (another shell, an older APK) keeps the plain NativeActivity behaviour.
+void register_menu_natives(ANativeActivity* activity) {
+    JNIEnv* env = activity->env;
+    jclass c = env->GetObjectClass(activity->clazz);
+    static const JNINativeMethod methods[] = {
+        {"nativeMenu", "(Z)V", reinterpret_cast<void*>(native_menu)},
+        {"nativeTouch", "(I)V", reinterpret_cast<void*>(native_touch)},
+    };
+    if (env->RegisterNatives(c, methods, 2) != 0 || env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(c);
+}
+
+}  // namespace
+
+void nx::plat::open_menu() {
+    if (!g_activity || g_menu_open.exchange(true)) return;
+    release_input();
+    audio_pause(true);
+    nx::log("android: Guide button: the in-game menu");
+    nx::log_flush();  // a bug report from the menu takes nx.log as it is now
+    JNIEnv* env = nullptr;
+    g_activity->vm->AttachCurrentThread(&env, nullptr);
+    jclass c = env->GetObjectClass(g_activity->clazz);
+    jmethodID m = env->GetMethodID(c, "openMenu", "()V");
+    if (m) env->CallVoidMethod(g_activity->clazz, m);
+    if (!m || env->ExceptionCheck()) {  // no menu in this activity: the game goes on
+        env->ExceptionClear();
+        g_menu_open = false;
+        audio_pause(false);
+        nx::log("android: no in-game menu in this activity");
+    }
+    env->DeleteLocalRef(c);
+}
+
 extern "C" JNIEXPORT void ANativeActivity_onCreate(ANativeActivity* activity, void* saved, size_t size) {
     g_activity = activity;
+    register_menu_natives(activity);
     if (g_ui_pipe[0] < 0 && pipe2(g_ui_pipe, O_NONBLOCK | O_CLOEXEC) == 0)
         ALooper_addFd(ALooper_forThread(), g_ui_pipe[0], ALOOPER_POLL_CALLBACK, ALOOPER_EVENT_INPUT, on_ui_request, nullptr);
     glue_ANativeActivity_onCreate(activity, saved, size);

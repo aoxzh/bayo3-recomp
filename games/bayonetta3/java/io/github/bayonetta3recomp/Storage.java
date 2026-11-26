@@ -44,7 +44,7 @@ final class Storage {
     // Internal storage first, then every mounted removable volume.
     static List<Volume> volumes(Context c) {
         List<Volume> out = new ArrayList<>();
-        out.add(new Volume(Environment.getExternalStorageDirectory(), "Internal storage", false));
+        out.add(new Volume(Environment.getExternalStorageDirectory(), Tr.t("Internal storage"), false));
         if (Build.VERSION.SDK_INT < 30) return out;  // StorageVolume.getDirectory; all-files access is 30+ anyway
         StorageManager sm = c.getSystemService(StorageManager.class);
         if (sm == null) return out;
@@ -53,7 +53,7 @@ final class Storage {
             File d = v.getDirectory();
             if (d == null || !d.isDirectory()) continue;
             String name = v.getDescription(c);
-            out.add(new Volume(d, name == null || name.isEmpty() ? "SD card" : name, v.isRemovable()));
+            out.add(new Volume(d, name == null || name.isEmpty() ? Tr.t("SD card") : name, v.isRemovable()));
         }
         return out;
     }

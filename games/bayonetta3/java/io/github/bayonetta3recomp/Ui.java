@@ -109,7 +109,7 @@ final class Ui {
         }
 
         void show(String v, boolean on) {
-            value.setText(stepper != null && !v.equals("On") && !v.equals("Off") ? "‹  " + v + "  ›" : v);
+            value.setText(stepper != null && !v.equals(Tr.t("On")) && !v.equals(Tr.t("Off")) ? "‹  " + v + "  ›" : v);
             value.setTextColor(on ? GOLD : MUTED);
         }
 

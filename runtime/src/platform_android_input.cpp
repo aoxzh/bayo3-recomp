@@ -109,6 +109,41 @@ int32_t on_input(android_app*, AInputEvent* e) {
     int32_t type = AInputEvent_getType(e);
     int32_t src = AInputEvent_getSource(e);
     if (type == AINPUT_EVENT_TYPE_KEY) {
+        // The controller's Guide/Home button (the game uses none): the in-game menu (GameActivity.openMenu). Once
+        // the menu is up its window takes the keys, so the press that closes it never comes here.
+        if (AKeyEvent_getKeyCode(e) == AKEYCODE_BUTTON_MODE) {
+            if (AKeyEvent_getAction(e) == AKEY_EVENT_ACTION_DOWN && AKeyEvent_getRepeatCount(e) == 0) {
+                g_in.unlock();  // the menu releases the held input (release_input) under this lock
+                open_menu();
+                g_in.lock();
+            }
+            return 1;
+        }
+        // Back three times in a row (each within 0.5 s of the last): the in-game menu too, for a pad or phone with no
+        // Guide button. The first two reach the game as - at once (no wait to tell a single press from a triple);
+        // the third, down and up, is the menu's alone.
+        if (AKeyEvent_getKeyCode(e) == AKEYCODE_BACK) {
+            static uint64_t last_down = 0;
+            static int presses = 0;
+            static bool eaten = false;  // the third press's down went to the menu: so does its up
+            const int32_t action = AKeyEvent_getAction(e);
+            if (action == AKEY_EVENT_ACTION_UP && eaten) {
+                eaten = false;
+                return 1;
+            }
+            if (action == AKEY_EVENT_ACTION_DOWN && AKeyEvent_getRepeatCount(e) == 0) {
+                const uint64_t now = monotonic_ns();
+                presses = last_down && now - last_down < 500'000'000ull ? presses + 1 : 1;
+                last_down = now;
+                if (presses >= 3) {
+                    presses = 0, last_down = 0, eaten = true;
+                    g_in.unlock();
+                    open_menu();
+                    g_in.lock();
+                    return 1;
+                }
+            }
+        }
         uint64_t b = key_to_button(AKeyEvent_getKeyCode(e));
         if (!b) return 0;
         g_gamepad = true;
@@ -208,6 +243,14 @@ int32_t on_input(android_app*, AInputEvent* e) {
 bool headless() {  // NX_HEADLESS (platform.h)
     static const bool on = std::getenv("NX_HEADLESS") != nullptr;
     return on;
+}
+
+// Nothing held: the in-game menu's window takes the input while it is open, so a button, stick or finger down when it
+// opened would never see its release.
+void release_input() {
+    std::lock_guard lk(g_in);
+    g_pad_buttons = PadState{};
+    g_touches.clear();
 }
 
 void read_pad(PadState& p) {

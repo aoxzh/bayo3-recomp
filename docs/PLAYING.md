@@ -359,7 +359,7 @@ adb push private/android-config.txt '/sdcard/Bayonetta 3/config.txt'
 adb shell am start -a android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION \\
   -d package:io.github.bayonetta3recomp
 # On the phone, enable all-files access, then return to the game.
-adb shell am start -n io.github.bayonetta3recomp/android.app.NativeActivity
+adb shell am start -n io.github.bayonetta3recomp/.GameActivity
 ```
 
 The native shell has no game importer. Its data root lookup prefers the selected root, then a populated app-specific external folder, then the shared `Bayonetta 3` folder. An older app-specific folder that already contains `analysis/main.bin` may take priority over the new shared files, so check the startup log before moving anything. For diagnostics, run `adb logcat -s bayonetta3`.

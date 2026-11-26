@@ -3,7 +3,6 @@ package io.github.bayonetta3recomp;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.GameManager;
-import android.app.NativeActivity;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -60,18 +59,18 @@ import java.util.zip.ZipOutputStream;
 // control is at least 48dp and reachable with a D-pad or stick (A selects, B backs out, Start starts, L1/R1 profile).
 public final class LauncherActivity extends Activity {
     private static final String[][] LANGUAGES = {
-            {"", "System language"}, {"en-US", "English (US)"}, {"en-GB", "English (UK)"}, {"ja", "日本語"},
+            {"", Tr.t("System language")}, {"en-US", "English (US)"}, {"en-GB", "English (UK)"}, {"ja", "日本語"},
             {"fr", "Français"}, {"fr-CA", "Français (Canada)"}, {"de", "Deutsch"}, {"it", "Italiano"},
             {"es", "Español"}, {"es-419", "Español (Latinoamérica)"}, {"nl", "Nederlands"},
             {"pt", "Português"}, {"pt-BR", "Português (Brasil)"}, {"ru", "Русский"},
             {"ko", "한국어"}, {"zh-Hans", "简体中文"}, {"zh-Hant", "繁體中文"}};
-    private static final String[][] TOUCH = {{"1", "Hide with a pad"}, {"2", "Always"}, {"0", "Off"}};
+    private static final String[][] TOUCH = {{"1", Tr.t("Hide with a pad")}, {"2", Tr.t("Always")}, {"0", Tr.t("Off")}};
     private static final int[] OPACITY = {40, 55, 70, 85, 100};
     private static final int[] SIZE = {70, 85, 100, 115, 130};
     private static final String[][] PROFILES = {
-            {Config.SAVER, "Battery saver", "30 fps · coolest, longest on battery"},
-            {Config.BALANCED, "Balanced 40", "40 fps · steady on recent chips"},
-            {Config.UNLOCKED, "Unlocked", "Up to 60 fps · falls as the phone warms"}};
+            {Config.SAVER, Tr.t("Battery saver"), Tr.t("30 fps · coolest, longest on battery")},
+            {Config.BALANCED, Tr.t("Balanced 40"), Tr.t("40 fps · steady on recent chips")},
+            {Config.UNLOCKED, Tr.t("Unlocked"), Tr.t("Up to 60 fps · falls as the phone warms")}};
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private Config cfg;
@@ -90,6 +89,7 @@ public final class LauncherActivity extends Activity {
     private TextView start, hints;
     private final LinearLayout[] profileRows = new LinearLayout[PROFILES.length];
     private TextView dataValue, cacheValue, padValue, chipValue, heatValue, note;
+    private LinearLayout gameModeCard;
     private View dataDot, cacheDot, padDot, heatDot;
     private Ui.Row langRow, swapRow, muteRow, touchRow, opacityRow, sizeRow, folderRow;
     private LinearLayout advanced;
@@ -126,6 +126,7 @@ public final class LauncherActivity extends Activity {
             final DeviceCheck.Result checked = r;
             ui.post(() -> {
                 gpu = found;
+                Report.keepGpu(this, found);  // for the in-game report (GameActivity)
                 spec = checked;
                 showChip();
                 // Below the minimum: say so once when the launcher opens, before anyone starts a setup.
@@ -280,7 +281,7 @@ public final class LauncherActivity extends Activity {
         title.setLetterSpacing(0.08f);
         title.setShadowLayer(dp(10), 0, 0, Ui.alpha(Ui.CYAN, 0x60));
         left.addView(title);
-        TextView sub = Ui.text(this, "Static recompilation · Android", 13, Ui.MUTED, false);
+        TextView sub = Ui.text(this, Tr.t("Static recompilation · Android"), 13, Ui.MUTED, false);
         sub.setLetterSpacing(0.04f);
         sub.setPadding(0, dp(6), 0, dp(14));
         left.addView(sub);
@@ -290,22 +291,19 @@ public final class LauncherActivity extends Activity {
         card.setPadding(dp(16), dp(10), dp(16), dp(10));
         card.setBackground(Ui.rect(this, Ui.alpha(Ui.PANEL, 0xc8), Ui.alpha(Ui.LINE, 0xc0), 1, 16));
         dataDot = new View(this);
-        dataValue = statusRow(card, "Game data", dataDot);
+        dataValue = statusRow(card, Tr.t("Game data"), dataDot);
         cacheDot = new View(this);
-        cacheValue = statusRow(card, "Shader cache", cacheDot);
+        cacheValue = statusRow(card, Tr.t("Shader cache"), cacheDot);
         padDot = new View(this);
-        padValue = statusRow(card, "Controller", padDot);
-        chipValue = statusRow(card, "Chip", null);
+        padValue = statusRow(card, Tr.t("Controller"), padDot);
+        chipValue = statusRow(card, Tr.t("Chip"), null);
         heatDot = new View(this);
-        heatValue = statusRow(card, "Temperature", heatDot);
+        heatValue = statusRow(card, Tr.t("Temperature"), heatDot);
         left.addView(card, new LinearLayout.LayoutParams(-1, -2));
-        note = Ui.text(this, "", 11.5f, Ui.FAINT, false);
-        note.setLineSpacing(dp(2), 1);
-        note.setPadding(dp(4), dp(10), 0, 0);
-        left.addView(note);
+        left.addView(buildGameModeCard(), gameModeParams());
         View fill = new View(this);
         left.addView(fill, new LinearLayout.LayoutParams(-1, 0, 1));
-        hints = Ui.text(this, "Ⓐ Select    Ⓑ Back    ☰ Start    L1 / R1  Profile    Ⓨ Settings", 12,
+        hints = Ui.text(this, Tr.t("Ⓐ Select    Ⓑ Back    ☰ Start    L1 / R1  Profile    Ⓨ Settings"), 12,
                 Ui.MUTED, false);
         hints.setVisibility(View.GONE);
         left.addView(hints);
@@ -323,18 +321,18 @@ public final class LauncherActivity extends Activity {
         right.setOrientation(LinearLayout.VERTICAL);
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.END);
-        TextView report = Ui.button(this, "Report a bug", false);
+        TextView report = Ui.button(this, Tr.t("Report a bug"), false);
         report.setOnClickListener(v -> reportIssue());
         top.addView(report);
         View sp = new View(this);
         top.addView(sp, new LinearLayout.LayoutParams(dp(10), 1));
-        TextView settings = Ui.button(this, "Settings", false);
+        TextView settings = Ui.button(this, Tr.t("Settings"), false);
         settings.setOnClickListener(v -> openPanel());
         top.addView(settings);
         right.addView(top, new LinearLayout.LayoutParams(-1, -2));
         right.addView(new View(this), new LinearLayout.LayoutParams(-1, 0, 1));
 
-        TextView perf = Ui.text(this, "PERFORMANCE", 11.5f, Ui.MUTED, true);
+        TextView perf = Ui.text(this, Tr.t("PERFORMANCE"), 11.5f, Ui.MUTED, true);
         perf.setLetterSpacing(0.16f);
         perf.setPadding(dp(4), 0, 0, dp(8));
         right.addView(perf);
@@ -358,7 +356,7 @@ public final class LauncherActivity extends Activity {
             right.addView(r, lp);
             profileRows[i] = r;
         }
-        start = Ui.button(this, "▶   START", true);
+        start = Ui.button(this, Tr.t("▶   START"), true);
         start.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
         start.setLetterSpacing(0.14f);
         start.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
@@ -368,6 +366,11 @@ public final class LauncherActivity extends Activity {
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, dp(68));
         slp.topMargin = dp(4);
         right.addView(start, slp);
+        TextView menuHint = Ui.text(this, Tr.t("In the game: press Back 3 times (or Guide on a controller) for the menu"),
+                11.5f, Ui.MUTED, false);
+        menuHint.setGravity(Gravity.CENTER);
+        menuHint.setPadding(0, dp(8), 0, 0);
+        right.addView(menuHint, new LinearLayout.LayoutParams(-1, -2));
         h.addView(right, new LinearLayout.LayoutParams(dp(300), -1));
         return h;
     }
@@ -397,22 +400,22 @@ public final class LauncherActivity extends Activity {
         c.setOrientation(LinearLayout.VERTICAL);
         c.setPadding(dp(28), dp(24), dp(28), dp(24));
         c.setBackground(Ui.rect(this, Ui.alpha(Ui.PANEL, 0xe8), Ui.LINE, 1, 20));
-        TextView t = Ui.text(this, "Allow access to the game folder", 22, Ui.TEXT, true);
+        TextView t = Ui.text(this, Tr.t("Allow access to the game folder"), 22, Ui.TEXT, true);
         c.addView(t);
-        TextView b = Ui.text(this, "The game runs from Internal storage/" + DataCheck.TITLE + ": the files you made from "
-                + "your own copy of the game. Android lets an app read a folder there only with “All files "
-                + "access”.\n\nThe app uses it for that folder alone: the game data, your saves, the shader cache "
-                + "and the log. Turn it on for this app on the next page, then come back.", 14, Ui.MUTED, false);
+        TextView b = Ui.text(this, Tr.f("The game runs from Internal storage/%s: the files you made from your own copy of the "
+                + "game. Android lets an app read a folder there only with “All files access”.\n\nThe app uses it for "
+                + "that folder alone: the game data, your saves, the shader cache and the log. Turn it on for this app "
+                + "on the next page, then come back.", DataCheck.TITLE), 14, Ui.MUTED, false);
         b.setLineSpacing(dp(3), 1);
         b.setPadding(0, dp(12), 0, dp(20));
         c.addView(b);
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.END);
-        TextView again = Ui.button(this, "Check again", false);
+        TextView again = Ui.button(this, Tr.t("Check again"), false);
         again.setOnClickListener(v -> refresh());
         row.addView(again);
         row.addView(new View(this), new LinearLayout.LayoutParams(dp(12), 1));
-        TextView grant = Ui.button(this, "Allow all files access", true);
+        TextView grant = Ui.button(this, Tr.t("Allow all files access"), true);
         grant.setTag("grant");
         grant.setOnClickListener(v -> requestAccess());
         row.addView(grant);
@@ -439,9 +442,9 @@ public final class LauncherActivity extends Activity {
         });
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = Ui.text(this, "Settings", 22, Ui.TEXT, true);
+        TextView title = Ui.text(this, Tr.t("Settings"), 22, Ui.TEXT, true);
         head.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView done = Ui.button(this, "Done", false);
+        TextView done = Ui.button(this, Tr.t("Done"), false);
         done.setOnClickListener(v -> closePanel());
         head.addView(done);
         p.addView(head);
@@ -449,7 +452,7 @@ public final class LauncherActivity extends Activity {
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(0, dp(12), 0, dp(12));
-        langRow = row(list, "Language", "The game's text and voices");
+        langRow = row(list, Tr.t("Language"), Tr.t("The game's text and voices"));
         langRow.stepper = d -> {
             String cur = cfg.get("language", "");
             int i = 0;
@@ -458,33 +461,33 @@ public final class LauncherActivity extends Activity {
             cfg.set("language", LANGUAGES[i][0].isEmpty() ? null : LANGUAGES[i][0]);
             saveAndShow();
         };
-        swapRow = row(list, "Xbox button layout", "On: the button marked A is the game's A. Off: by position, as on Switch");
+        swapRow = row(list, Tr.t("Xbox button layout"), Tr.t("On: the button marked A is the game's A. Off: by position, as on Switch"));
         swapRow.stepper = d -> { cfg.set("NX_PAD_SWAP", on("NX_PAD_SWAP") ? null : "1"); saveAndShow(); };
-        muteRow = row(list, "Mute", "No sound at all");
+        muteRow = row(list, Tr.t("Mute"), Tr.t("No sound at all"));
         muteRow.stepper = d -> { cfg.set("NX_MUTE", on("NX_MUTE") ? null : "1"); saveAndShow(); };
-        section(list, "TOUCH CONTROLS");
-        touchRow = row(list, "Touch controls", "Drawn over the game");
+        section(list, Tr.t("TOUCH CONTROLS"));
+        touchRow = row(list, Tr.t("Touch controls"), Tr.t("Drawn over the game"));
         touchRow.stepper = d -> {
             int i = index(TOUCH, cfg.get("NX_TOUCH_SHOW", "1"));
             i = (i + d + TOUCH.length) % TOUCH.length;
             cfg.set("NX_TOUCH_SHOW", TOUCH[i][0]);
             saveAndShow();
         };
-        opacityRow = row(list, "Opacity", null);
+        opacityRow = row(list, Tr.t("Opacity"), null);
         opacityRow.stepper = d -> { cfg.set("NX_TOUCH_OPACITY", "" + stepInt(OPACITY, "NX_TOUCH_OPACITY", 85, d)); saveAndShow(); };
-        sizeRow = row(list, "Size", null);
+        sizeRow = row(list, Tr.t("Size"), null);
         sizeRow.stepper = d -> { cfg.set("NX_TOUCH_SIZE", "" + stepInt(SIZE, "NX_TOUCH_SIZE", 100, d)); saveAndShow(); };
 
-        section(list, "STORAGE");
-        folderRow = row(list, "Game folder", "Where the game data, your saves and the shader cache are");
+        section(list, Tr.t("STORAGE"));
+        folderRow = row(list, Tr.t("Game folder"), Tr.t("Where the game data, your saves and the shader cache are"));
         folderRow.stepper = d -> pickFolder();
 
-        section(list, "SUPPORT");
-        Ui.Row share = row(list, "Share a bug report", "A zip of nx.log, config.txt and the chip info, through the share sheet");
+        section(list, Tr.t("SUPPORT"));
+        Ui.Row share = row(list, Tr.t("Share a bug report"), Tr.t("A zip of nx.log, config.txt and the chip info, through the share sheet"));
         share.value.setText("›");
         share.setOnClickListener(v -> shareReport());
 
-        advancedRow = Ui.text(this, "Advanced  ▸", 14, Ui.MUTED, true);
+        advancedRow = Ui.text(this, Tr.t("Advanced") + "  ▸", 14, Ui.MUTED, true);
         advancedRow.setGravity(Gravity.CENTER_VERTICAL);
         advancedRow.setMinHeight(dp(48));
         advancedRow.setPadding(dp(16), 0, dp(16), 0);
@@ -494,7 +497,7 @@ public final class LauncherActivity extends Activity {
             boolean show = advanced.getVisibility() != View.VISIBLE;
             if (!show) saveAdvanced();
             advanced.setVisibility(show ? View.VISIBLE : View.GONE);
-            advancedRow.setText(show ? "Advanced  ▾" : "Advanced  ▸");
+            advancedRow.setText(Tr.t("Advanced") + (show ? "  ▾" : "  ▸"));
         });
         LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(-1, -2);
         alp.topMargin = dp(10);
@@ -511,7 +514,7 @@ public final class LauncherActivity extends Activity {
         advancedText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         advancedText.setTextColor(Ui.TEXT);
         advancedText.setHintTextColor(Ui.FAINT);
-        advancedText.setHint("NX_KEY=value, one per line");
+        advancedText.setHint(Tr.t("NX_KEY=value, one per line"));
         advancedText.setGravity(Gravity.TOP | Gravity.START);
         advancedText.setMinLines(6);
         advancedText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -553,36 +556,36 @@ public final class LauncherActivity extends Activity {
         StringBuilder b = new StringBuilder();
         if (needsSetup()) {  // an APK that builds the game here (Setup.java)
             dataValue.setText(Setup.current() != null && Setup.current().running
-                    ? "Setting up · " + Setup.current().phase + " (tap SET UP to see it)"
-                    : "Not set up yet · SET UP builds the game from your dump here (30-60 min), or send it from a "
-                    + "computer over USB in minutes (desktop launcher: Send to my phone)");
+                    ? Tr.f("Setting up · %s (tap SET UP to see it)", Setup.current().phase)
+                    : Tr.t("Not set up yet · SET UP builds the game from your dump here (30-60 min), or send it from a "
+                    + "computer over USB in minutes (desktop launcher: Send to my phone)"));
             dataValue.setTextColor(Ui.GOLD);
             dot(dataDot, Ui.GOLD);
-            start.setText("SET UP");
+            start.setText(Tr.t("SET UP"));
             start.setAlpha(1f);
-            cacheValue.setText("None yet");
+            cacheValue.setText(Tr.t("None yet"));
             dot(cacheDot, Ui.FAINT);
             return;
         }
-        start.setText("▶   START");
+        start.setText(Tr.t("▶   START"));
         if (!data.folderExists) {
-            b.append(data.rootLabel()).append(" not found.\nCreate it and copy the game data into it: analysis/, "
-                    + "extract/romfs/ and spirv/.");
+            b.append(Tr.f("%s not found.\nCreate it and copy the game data into it: analysis/, extract/romfs/ and "
+                    + "spirv/.", data.rootLabel()));
         } else if (data.ready()) {
-            b.append("Ready · ").append(data.rootLabel());
+            b.append(Tr.f("Ready · %s", data.rootLabel()));
         } else {
-            b.append("Missing in ").append(data.rootLabel()).append(':');
-            for (DataCheck.Item i : data.missing) b.append("\n• ").append(i.path).append(" — ").append(i.why);
+            b.append(Tr.f("Missing in %s:", data.rootLabel()));
+            for (DataCheck.Item i : data.missing) b.append("\n• ").append(i.path).append(" — ").append(Tr.t(i.why));
         }
         dataValue.setText(b);
         dataValue.setTextColor(data.ready() ? Ui.TEXT : Ui.RED);
         dot(dataDot, data.ready() ? Ui.GREEN : Ui.RED);
         start.setAlpha(data.ready() ? 1f : 0.55f);
         if (data.cacheFiles > 0) {
-            cacheValue.setText(DataCheck.size(data.cacheBytes) + " · warm, fewer stutters");
+            cacheValue.setText(Tr.f("%s · warm, fewer stutters", DataCheck.size(data.cacheBytes)));
             dot(cacheDot, Ui.GREEN);
         } else {
-            cacheValue.setText("Empty · first scenes stutter while it fills");
+            cacheValue.setText(Tr.t("Empty · first scenes stutter while it fills"));
             dot(cacheDot, Ui.GOLD);
         }
     }
@@ -620,8 +623,8 @@ public final class LauncherActivity extends Activity {
     private void showSettings() {
         String lang = cfg.get("language", "");
         langRow.show(LANGUAGES[index(LANGUAGES, lang)][1], true);
-        swapRow.show(on("NX_PAD_SWAP") ? "On" : "Off", on("NX_PAD_SWAP"));
-        muteRow.show(on("NX_MUTE") ? "On" : "Off", on("NX_MUTE"));
+        swapRow.show(Tr.t(on("NX_PAD_SWAP") ? "On" : "Off"), on("NX_PAD_SWAP"));
+        muteRow.show(Tr.t(on("NX_MUTE") ? "On" : "Off"), on("NX_MUTE"));
         String touch = cfg.get("NX_TOUCH_SHOW", "1");
         touchRow.show(TOUCH[index(TOUCH, touch)][1], !touch.equals("0"));
         boolean touchOn = !touch.equals("0");
@@ -629,31 +632,21 @@ public final class LauncherActivity extends Activity {
         sizeRow.show(cfg.get("NX_TOUCH_SIZE", "100") + "%", touchOn);
         List<Storage.Volume> vols = Storage.volumes(this);
         Storage.Volume here = data.root.equals(DataCheck.ownRoot(this)) ? null : Storage.volumeOf(this, data.root);
-        folderRow.show(here != null ? here.name : "App folder", true);
-        folderRow.hint.setText(vols.size() > 1 ? "Where the game data, your saves and the shader cache are: "
-                + "Internal storage or " + vols.get(1).name
-                : "Where the game data, your saves and the shader cache are. An SD card shows up here once inserted");
-        folderText.setText("Data folder: " + data.root.getAbsolutePath() + "\nOther lines of config.txt, kept as "
-                + "they are. A line for a setting above is replaced by that setting.");
+        folderRow.show(here != null ? here.name : Tr.t("App folder"), true);
+        folderRow.hint.setText(vols.size() > 1
+                ? Tr.f("Where the game data, your saves and the shader cache are: Internal storage or %s", vols.get(1).name)
+                : Tr.t("Where the game data, your saves and the shader cache are. An SD card shows up here once inserted"));
+        folderText.setText(Tr.f("Data folder: %s\nOther lines of config.txt, kept as they are. A line for a setting "
+                + "above is replaced by that setting.", data.root.getAbsolutePath()));
         advancedText.setText(cfg.otherText());
     }
 
     private void showPads() {
         if (padValue == null) return;
-        List<String> names = new ArrayList<>();
-        for (int id : InputDevice.getDeviceIds()) {
-            InputDevice d = InputDevice.getDevice(id);
-            // A controller number is what the system gives real pads (built-in ones too); vendor virtual devices that
-            // report joystick classes (force-feedback nodes and the like) have none.
-            if (d == null || d.isVirtual() || d.getControllerNumber() <= 0) continue;
-            int s = d.getSources();
-            if ((s & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
-                    || (s & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK)
-                if (!names.contains(d.getName())) names.add(d.getName());
-        }
+        List<String> names = Report.pads();
         if (names.isEmpty()) {
             boolean touch = cfg == null || !"0".equals(cfg.get("NX_TOUCH_SHOW", "1"));
-            padValue.setText(touch ? "None · touch controls" : "None · touch controls are off in Settings");
+            padValue.setText(Tr.t(touch ? "None · touch controls" : "None · touch controls are off in Settings"));
             dot(padDot, touch ? Ui.FAINT : Ui.GOLD);
         } else {
             padValue.setText(String.join(", ", names));
@@ -666,10 +659,10 @@ public final class LauncherActivity extends Activity {
         if (chipValue == null) return;
         String s = ChipInfo.soc() + (gpu != null ? " · " + gpu : "");
         if (spec != null && !spec.ok()) {
-            chipValue.setText(s + "\nBelow the minimum: " + String.join("; ", spec.below));
+            chipValue.setText(s + "\n" + Tr.f("Below the minimum: %s", String.join("; ", spec.below)));
             chipValue.setTextColor(Ui.RED);
         } else if (spec != null && !spec.weak.isEmpty()) {
-            chipValue.setText(s + "\nMay struggle: " + String.join("; ", spec.weak));
+            chipValue.setText(s + "\n" + Tr.f("May struggle: %s", String.join("; ", spec.weak)));
             chipValue.setTextColor(Ui.GOLD);
         } else {
             chipValue.setText(s);
@@ -684,44 +677,70 @@ public final class LauncherActivity extends Activity {
 
     private void specDialog(DeviceCheck.Result r, Runnable then) {
         new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
-                .setTitle("This phone is below the minimum")
+                .setTitle(Tr.t("This phone is below the minimum"))
                 .setMessage(DeviceCheck.message(r))
-                .setPositiveButton("Close", null)
-                .setNeutralButton("Try anyway", (d, w) -> {
+                .setPositiveButton(Tr.t("Close"), null)
+                .setNeutralButton(Tr.t("Try anyway"), (d, w) -> {
                     getSharedPreferences("device_check", MODE_PRIVATE).edit().putString("tried", r.key()).apply();
                     if (then != null) then.run();
                 })
                 .show();
     }
 
-    private static final String[] HEAT = {"Cool", "Light · fine", "Warm · clocks may drop",
-            "Hot · expect a lower frame rate", "Critical · let it cool", "Emergency", "Shutting down"};
+    private static final String[] HEAT = {Tr.t("Cool"), Tr.t("Light · fine"), Tr.t("Warm · clocks may drop"),
+            Tr.t("Hot · expect a lower frame rate"), Tr.t("Critical · let it cool"), Tr.t("Emergency"),
+            Tr.t("Shutting down")};
 
     private void showHeat() {
         if (heatValue == null) return;
         int s = Math.max(0, Math.min(HEAT.length - 1, thermal));
-        heatValue.setText(thermal < 0 ? "Unknown" : HEAT[s]);
+        heatValue.setText(thermal < 0 ? Tr.t("Unknown") : HEAT[s]);
         dot(heatDot, s <= 1 ? Ui.GREEN : s == 2 ? Ui.GOLD : Ui.RED);
     }
 
-    private String gameMode() {
-        if (Build.VERSION.SDK_INT < 31) return null;
-        GameManager gm = getSystemService(GameManager.class);
-        if (gm == null) return null;
-        switch (gm.getGameMode()) {
-            case GameManager.GAME_MODE_STANDARD: return "Standard";
-            case GameManager.GAME_MODE_PERFORMANCE: return "Performance";
-            case GameManager.GAME_MODE_BATTERY: return "Battery";
-            case 4: return "Custom";
-            default: return null;
-        }
+    private String gameMode() { return Report.gameMode(this); }
+
+
+    // The game-mode card: many phones keep an app they do not know as a game at low clocks, and the game then cannot
+    // run at full speed however cool the phone is. Always on the home screen until the player says it is done.
+    private View buildGameModeCard() {
+        gameModeCard = new LinearLayout(this);
+        gameModeCard.setOrientation(LinearLayout.VERTICAL);
+        gameModeCard.setPadding(dp(16), dp(12), dp(16), dp(12));
+        gameModeCard.setBackground(Ui.rect(this, Ui.alpha(Ui.GOLD_DIM, 0x70), Ui.GOLD, 2, 16));
+        TextView title = Ui.text(this, "⚡  " + Tr.t("Add this app to your phone's game mode first"), 15, Ui.GOLD, true);
+        gameModeCard.addView(title);
+        note = Ui.text(this, "", 12.5f, Ui.TEXT, false);
+        note.setLineSpacing(dp(2), 1);
+        note.setPadding(0, dp(6), 0, dp(8));
+        gameModeCard.addView(note);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.END);
+        TextView done = Ui.button(this, Tr.t("Done, hide this"), false);
+        done.setOnClickListener(v -> {
+            getSharedPreferences("launcher", MODE_PRIVATE).edit().putBoolean("game_mode_done", true).apply();
+            gameModeCard.setVisibility(View.GONE);
+            start.requestFocus();
+        });
+        row.addView(done);
+        gameModeCard.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return gameModeCard;
+    }
+
+    private LinearLayout.LayoutParams gameModeParams() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(12);
+        return lp;
     }
 
     private void showNote() {
         String mode = gameMode();
-        note.setText((mode != null ? "Game mode: " + mode + ". " : "")
-                + "Some phones hold CPU clocks low for apps outside the system's game list: if the frame rate stays "
-                + "low while cool, add this app there.");
+        note.setText(Tr.t("Many phones (vivo, Xiaomi, OPPO, Honor, Samsung and others) slow down apps they do not know "
+                + "as games. Add Bayonetta 3 Recomp in your phone's Game Center, Game Booster, Game Space or game mode "
+                + "before you play, or it cannot run at full speed.")
+                + (mode != null ? "\n" + Tr.f("Game mode now: %s", Tr.t(mode)) : ""));
+        gameModeCard.setVisibility(getSharedPreferences("launcher", MODE_PRIVATE).getBoolean("game_mode_done", false)
+                ? View.GONE : View.VISIBLE);
     }
 
     // ---- actions --------------------------------------------------------------------------------------------------
@@ -737,7 +756,7 @@ public final class LauncherActivity extends Activity {
             cfg.save();
             return true;
         } catch (IOException e) {
-            Toast.makeText(this, "Could not write config.txt: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, Tr.f("Could not write config.txt: %s", e.getMessage()), Toast.LENGTH_LONG).show();
             return false;
         }
     }
@@ -764,25 +783,26 @@ public final class LauncherActivity extends Activity {
     // puts it there.
     private void pickFolder() {
         if (Setup.current() != null && Setup.current().running) {
-            Toast.makeText(this, "The setup is running: change the game folder after it.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, Tr.t("The setup is running: change the game folder after it."), Toast.LENGTH_LONG).show();
             return;
         }
         final List<Storage.Volume> vols = Storage.volumes(this);
         if (vols.size() < 2) {
-            Toast.makeText(this, "No SD card found: insert one (exFAT) and come back.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, Tr.t("No SD card found: insert one (exFAT) and come back."), Toast.LENGTH_LONG).show();
             return;
         }
         Storage.Volume cur = Storage.volumeOf(this, data.root);
         String[] names = new String[vols.size()];
         for (int i = 0; i < vols.size(); i++) {
             Storage.Volume v = vols.get(i);
-            names[i] = v.name + (cur != null && v.dir.equals(cur.dir) ? "  (now)" : "") + " · "
-                    + DataCheck.size(v.free()) + " free" + (DataCheck.hasData(v.gameFolder()) ? " · holds the game" : "");
+            names[i] = v.name + (cur != null && v.dir.equals(cur.dir) ? "  " + Tr.t("(now)") : "") + " · "
+                    + Tr.f("%s free", DataCheck.size(v.free()))
+                    + (DataCheck.hasData(v.gameFolder()) ? " · " + Tr.t("holds the game") : "");
         }
         new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
-                .setTitle("Game folder")
+                .setTitle(Tr.t("Game folder"))
                 .setItems(names, (d, w) -> folderChosen(vols.get(w), cur))
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(Tr.t("Cancel"), null)
                 .show();
     }
 
@@ -792,33 +812,33 @@ public final class LauncherActivity extends Activity {
         boolean ownFolder = data.root.equals(DataCheck.ownRoot(this));
         if (DataCheck.hasData(dest)) {
             new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
-                    .setTitle("Use the game on " + to.name + "?")
-                    .setMessage(to.name + "/" + DataCheck.TITLE + " already holds the game data: the game runs from "
-                            + "there, with the saves and settings in it. " + data.rootLabel() + " stays as it is.")
-                    .setPositiveButton("Use it", (d, w) -> switchFolder(to))
-                    .setNegativeButton("Cancel", null)
+                    .setTitle(Tr.f("Use the game on %s?", to.name))
+                    .setMessage(Tr.f("%s/%s already holds the game data: the game runs from there, with the saves and "
+                            + "settings in it. %s stays as it is.", to.name, DataCheck.TITLE, data.rootLabel()))
+                    .setPositiveButton(Tr.t("Use it"), (d, w) -> switchFolder(to))
+                    .setNegativeButton(Tr.t("Cancel"), null)
                     .show();
         } else if (data.folderExists && DataCheck.hasData(data.root) && !ownFolder) {
             final long total = Storage.size(data.root), free = to.free();
             String size = DataCheck.size(total);
             AlertDialog.Builder b = new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
-                    .setTitle("Move the game to " + to.name + "?");
+                    .setTitle(Tr.f("Move the game to %s?", to.name));
             if (free < total + (256L << 20)) {
-                b.setMessage("The game folder is " + size + " and " + to.name + " has " + DataCheck.size(free)
-                        + " free. Free some space there first.").setPositiveButton("Close", null).show();
+                b.setMessage(Tr.f("The game folder is %s and %s has %s free. Free some space there first.", size,
+                        to.name, DataCheck.size(free))).setPositiveButton(Tr.t("Close"), null).show();
                 return;
             }
-            b.setMessage("This copies the game folder (" + size + ": the game data, your saves, settings and shader "
-                    + "cache) to " + to.name + "/" + DataCheck.TITLE + ", then removes it from " + data.rootLabel()
-                    + ". About " + Math.max(1, total / (40L << 20) / 60) + " minutes on a fast card; if it stops "
-                    + "half way, the game stays where it is. Keep the phone charging.")
-                    .setPositiveButton("Move", (d, w) -> moveFolder(to))
-                    .setNegativeButton("Cancel", null)
+            b.setMessage(Tr.f("This copies the game folder (%s: the game data, your saves, settings and shader cache) "
+                    + "to %s/%s, then removes it from %s. About %d minutes on a fast card; if it stops half way, the "
+                    + "game stays where it is. Keep the phone charging.", size, to.name, DataCheck.TITLE,
+                    data.rootLabel(), Math.max(1, total / (40L << 20) / 60)))
+                    .setPositiveButton(Tr.t("Move"), (d, w) -> moveFolder(to))
+                    .setNegativeButton(Tr.t("Cancel"), null)
                     .show();
         } else {
             switchFolder(to);
-            Toast.makeText(this, (needsSetup() ? "SET UP puts the game on " : "The game folder is now on ") + to.name
-                    + ".", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, needsSetup() ? Tr.f("SET UP puts the game on %s.", to.name)
+                    : Tr.f("The game folder is now on %s.", to.name), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -826,7 +846,7 @@ public final class LauncherActivity extends Activity {
         try {
             Storage.choose(this, to);
         } catch (IOException e) {
-            Toast.makeText(this, "Could not change the game folder: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, Tr.f("Could not change the game folder: %s", e.getMessage()), Toast.LENGTH_LONG).show();
         }
         refresh();
     }
@@ -836,24 +856,24 @@ public final class LauncherActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(24), dp(12), dp(24), 0);
-        final TextView what = Ui.text(this, "Starting", 13, Ui.MUTED, false);
+        final TextView what = Ui.text(this, Tr.t("Starting"), 13, Ui.MUTED, false);
         box.addView(what);
         final android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null,
                 android.R.attr.progressBarStyleHorizontal);
         bar.setMax(1000);
         box.addView(bar, new LinearLayout.LayoutParams(-1, dp(24)));
         final AlertDialog dialog = new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
-                .setTitle("Moving the game to " + to.name)
+                .setTitle(Tr.f("Moving the game to %s", to.name))
                 .setView(box)
                 .setCancelable(false)
-                .setNegativeButton("Stop", (d, w) -> move.cancelled = true)
+                .setNegativeButton(Tr.t("Stop"), (d, w) -> move.cancelled = true)
                 .show();
         new Thread(() -> {
             String error = null;
             try {
                 move.run(this, to, (done, total, file) -> ui.post(() -> {
                     bar.setProgress(total > 0 ? (int) (1000L * done / total) : 0);
-                    what.setText(DataCheck.size(done) + " of " + DataCheck.size(total) + " · " + file);
+                    what.setText(Tr.f("%s of %s", DataCheck.size(done), DataCheck.size(total)) + " · " + file);
                 }));
             } catch (IOException e) {
                 error = e.getMessage();
@@ -862,8 +882,8 @@ public final class LauncherActivity extends Activity {
             ui.post(() -> {
                 dialog.dismiss();
                 refresh();
-                Toast.makeText(this, err == null ? "The game is now on " + to.name + "."
-                        : "Not moved: " + err + ". The game is still in " + data.rootLabel() + ".",
+                Toast.makeText(this, err == null ? Tr.f("The game is now on %s.", to.name)
+                        : Tr.f("Not moved: %s. The game is still in %s.", err, data.rootLabel()),
                         Toast.LENGTH_LONG).show();
             });
         }, "b3-move").start();
@@ -887,14 +907,14 @@ public final class LauncherActivity extends Activity {
             return;
         }
         if (!data.ready()) {
-            Toast.makeText(this, "The game data is incomplete: the list on the left says what is missing.",
+            Toast.makeText(this, Tr.t("The game data is incomplete: the list on the left says what is missing."),
                     Toast.LENGTH_LONG).show();
             return;
         }
         if (panelLayer.getVisibility() == View.VISIBLE) saveAdvanced();
         if (!cfg.values.containsKey("NX_PROFILE")) cfg.setProfile(cfg.profile());
         if (!save()) return;
-        startActivity(new Intent(this, NativeActivity.class));
+        startActivity(new Intent(this, GameActivity.class));
         finish();
     }
 
@@ -991,146 +1011,13 @@ public final class LauncherActivity extends Activity {
     }
 
     private String report() {
-        StringBuilder b = new StringBuilder();
-        String version = "?";
-        try {
-            PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
-            version = pi.versionName + " (" + pi.getLongVersionCode() + ")";
-        } catch (Exception ignored) {
-        }
-        b.append("Bayonetta 3 Recomp: launcher report, ")
-                .append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(new Date())).append('\n');
-        b.append("app: ").append(version).append('\n');
-        b.append("android: ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
-        b.append("soc: ").append(ChipInfo.soc()).append('\n');
-        b.append("gpu: ").append(gpu == null ? "?" : gpu).append('\n');
-        b.append("abi: ").append(Build.SUPPORTED_ABIS.length > 0 ? Build.SUPPORTED_ABIS[0] : "?").append('\n');
-        b.append("cpus: ").append(Runtime.getRuntime().availableProcessors()).append('\n');
-        b.append("thermal status: ").append(thermal).append('\n');
-        String mode = gameMode();
-        b.append("game mode: ").append(mode == null ? "unsupported" : mode).append('\n');
-        b.append("all-files access: ").append(allFilesAccess()).append('\n');
-        if (data != null) {
-            b.append("data folder: ").append(data.root).append(data.ready() ? " (ready)" : " (incomplete)").append('\n');
-            for (DataCheck.Item i : data.missing) b.append("  missing: ").append(i.path).append('\n');
-            b.append("pipeline cache: ").append(data.cacheFiles).append(" file(s), ")
-                    .append(DataCheck.size(data.cacheBytes)).append('\n');
-        }
-        if (cfg != null) b.append("profile: ").append(cfg.profile()).append('\n');
-        b.append("controllers: ").append(padValue.getText()).append('\n');
-        return b.toString();
+        return Report.text(this, "launcher", gpu, data, cfg, String.valueOf(padValue.getText()));
     }
 
     private void shareReport() { makeReport(false); }
 
-    // Report a bug: the zip goes to Downloads (the browser's file picker finds it there) and our GitHub issue page
-    // opens with its form filled in (what to write, the app, Android, chip and GPU: no paths). The player signs in,
-    // writes what happened, attaches the zip and submits. Without Downloads it falls back to the share sheet.
+    // Report a bug: Report.java (the zip to Downloads and the filled-in issue page, else the share sheet).
     private void reportIssue() { makeReport(true); }
 
-    private void openIssue(String zipName) {
-        String body = "**What happened?** (what you did, what you saw, what you expected)\n\n\n"
-                + "**Where?** (chapter or menu, or right at the start)\n\n\n"
-                + "**Bug report:** attach `" + zipName + "` from your phone's Downloads folder (logs and settings, "
-                + "no game files).\n\n---\n"
-                + "- app: " + appVersion() + "\n"
-                + "- android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\n"
-                + "- chip: " + ChipInfo.soc() + "\n"
-                + "- GPU: " + (gpu == null ? "?" : gpu) + "\n";
-        Uri uri = Uri.parse("https://github.com/aoxzh/bayo3-recomp/issues/new").buildUpon()
-                .appendQueryParameter("title", "[Bug][Android] ")
-                .appendQueryParameter("body", body).build();
-        try {
-            startActivity(new Intent(Intent.ACTION_VIEW, uri));
-        } catch (Exception e) {
-            Toast.makeText(this, "No browser found: open github.com/aoxzh/bayo3-recomp/issues", Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private String appVersion() {
-        try {
-            PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
-            return pi.versionName;
-        } catch (Exception e) {
-            return "?";
-        }
-    }
-
-    private void makeReport(final boolean issue) {
-        final String text = report();
-        final File root = data != null ? data.root : null;
-        Toast.makeText(this, "Preparing the report…", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            File dir = SupportProvider.dir(this);
-            File[] old = dir.listFiles();
-            if (old != null) for (File f : old) f.delete();
-            dir.mkdirs();
-            String stamp = new SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(new Date());
-            File zip = new File(dir, "bayonetta3-report-" + stamp + ".zip");
-            String error = null;
-            try (ZipOutputStream z = new ZipOutputStream(new FileOutputStream(zip))) {
-                z.putNextEntry(new ZipEntry("chip-and-app.txt"));
-                z.write(text.getBytes("UTF-8"));
-                z.closeEntry();
-                if (root != null) {
-                    addTail(z, new File(root, "nx.log"), 24L << 20);
-                    addTail(z, new File(root, "config.txt"), 1L << 20);
-                }
-            } catch (IOException e) {
-                error = e.getMessage();
-            }
-            File saved = null;
-            if (issue && error == null) {
-                File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                File copy = new File(downloads, zip.getName());
-                try (FileInputStream in = new FileInputStream(zip); FileOutputStream out = new FileOutputStream(copy)) {
-                    byte[] buf = new byte[1 << 16];
-                    for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
-                    saved = copy;
-                } catch (IOException ignored) {  // no access to Downloads: the share sheet below
-                }
-            }
-            final String err = error;
-            final File inDownloads = saved;
-            ui.post(() -> {
-                if (err != null) {
-                    Toast.makeText(this, "Could not make the report: " + err, Toast.LENGTH_LONG).show();
-                    return;
-                }
-                if (inDownloads != null) {
-                    Toast.makeText(this, "Saved " + inDownloads.getName() + " in Downloads: attach it on the page "
-                            + "that opens", Toast.LENGTH_LONG).show();
-                    openIssue(inDownloads.getName());
-                    return;
-                }
-                Uri uri = SupportProvider.uri(this, zip);
-                Intent send = new Intent(Intent.ACTION_SEND);
-                send.setType("application/zip");
-                send.putExtra(Intent.EXTRA_STREAM, uri);
-                send.putExtra(Intent.EXTRA_SUBJECT, "Bayonetta 3 Recomp bug report");
-                send.putExtra(Intent.EXTRA_TEXT, "What happened, and what you were doing:\n\n");
-                send.setClipData(ClipData.newRawUri(zip.getName(), uri));
-                send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                startActivity(Intent.createChooser(send, "Send the bug report"));
-            });
-        }, "report").start();
-    }
-
-    // The last `max` bytes of a file (a long nx.log keeps its end, where a crash is).
-    private static void addTail(ZipOutputStream z, File f, long max) throws IOException {
-        if (!f.isFile()) return;
-        z.putNextEntry(new ZipEntry(f.getName()));
-        try (FileInputStream in = new FileInputStream(f)) {
-            long skip = Math.max(0, f.length() - max);
-            while (skip > 0) {
-                long s = in.skip(skip);
-                if (s <= 0) break;
-                skip -= s;
-            }
-            byte[] buf = new byte[1 << 16];
-            int n;
-            while ((n = in.read(buf)) > 0) z.write(buf, 0, n);
-        }
-        z.closeEntry();
-    }
+    private void makeReport(boolean issue) { Report.make(this, report(), data != null ? data.root : null, issue, gpu); }
 }

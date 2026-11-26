@@ -50,10 +50,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <!-- The game: libbayonetta3.so's android_main. Exported so scripts can start it directly with adb
-             (am start -n io.github.bayonetta3recomp/android.app.NativeActivity), skipping the launcher. -->
+        <!-- The game: GameActivity (games/bayonetta3/java), a NativeActivity running libbayonetta3.so's android_main,
+             with the in-game menu (the controller's Guide button, or Back three times). In its own process, so Quit to launcher ends the
+             game and the launcher stays; singleTask, so starting it again while it runs brings the running game back.
+             Exported so scripts can start it directly with adb
+             (am start -n io.github.bayonetta3recomp/.GameActivity), skipping the launcher. -->
         <activity
-            android:name="android.app.NativeActivity"
+            android:name=".GameActivity"
+            android:process=":game"
+            android:launchMode="singleTask"
             android:exported="true"
             android:screenOrientation="sensorLandscape"
             android:resizeableActivity="false"

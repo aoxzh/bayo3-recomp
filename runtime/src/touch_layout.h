@@ -19,6 +19,7 @@ const TouchButton* touch_buttons(size_t& count);
 bool touch_enabled();
 // NX_TOUCH_SHOW=2 (launcher: Touch controls "Always"): still drawn while a controller is in use.
 bool touch_always();
+void set_touch_show(int v);  // 0 off, 1 hidden with a controller, 2 always (the in-game menu)
 bool touch_mirrored();
 float touch_opacity_scale();
 // The button under (x, y) (0..1 across the screen; aspect = width / height), or 0.

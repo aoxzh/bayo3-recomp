@@ -7,7 +7,7 @@
 // camera stick under the right thumb). Games with no layout here keep their own touch handling (Hades: zones around
 // the thumb, decided by the game's code, not by this file).
 //
-// Launcher settings (config.txt, which becomes the environment, all read once):
+// Launcher settings (config.txt, which becomes the environment, read once; NX_TOUCH_SHOW also from the in-game menu):
 //   NX_TOUCH_SHOW=0      draw nothing and ignore touches
 //   NX_TOUCH_LAYOUT=...  move buttons: "A:x,y,r;B:..." in 0..1 screen coordinates
 //   NX_TOUCH_SIZE=50..160 percent of the drawn radii (100 = as designed)
@@ -21,6 +21,7 @@
 #include "touch_art.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -98,22 +99,27 @@ const std::vector<tz::Zone>& zones() {
 
 }  // namespace
 
-// NX_TOUCH_SHOW=0 (launcher: On-screen buttons off): nothing is drawn and touches are ignored.
-bool touch_enabled() {
-    static const bool on = [] {
-        const char* e = std::getenv("NX_TOUCH_SHOW");
-        return !(e && e[0] == '0');
-    }();
-    return on;
-}
+// NX_TOUCH_SHOW: 0 off (nothing drawn, touches ignored), 1 hidden while a controller is in use (the default), 2 always. Read at start; the in-game menu
+// (GameActivity, set_touch_show) changes it while the game runs.
+namespace {
+std::atomic<int> g_touch_show{-1};  // -1: not read yet
 
-bool touch_always() {
-    static const bool on = [] {
+int touch_show() {
+    int v = g_touch_show.load(std::memory_order_relaxed);
+    if (v < 0) {
         const char* e = std::getenv("NX_TOUCH_SHOW");
-        return e && e[0] == '2';
-    }();
-    return on;
+        v = e && e[0] == '0' ? 0 : e && e[0] == '2' ? 2 : 1;
+        g_touch_show.store(v, std::memory_order_relaxed);
+    }
+    return v;
 }
+}  // namespace
+
+void set_touch_show(int v) { g_touch_show.store(v == 0 || v == 2 ? v : 1, std::memory_order_relaxed); }
+
+bool touch_enabled() { return touch_show() != 0; }
+
+bool touch_always() { return touch_show() == 2; }
 
 // NX_TOUCH_MIRROR=1 (left-handed): the stick takes the right half of the screen instead of the left.
 bool touch_mirrored() {

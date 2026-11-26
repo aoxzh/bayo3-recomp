@@ -41,8 +41,8 @@ public final class SetupService extends Service {
             return START_NOT_STICKY;
         }
         NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Game setup", NotificationManager.IMPORTANCE_LOW));
-        Notification n = notification("Starting", 0, 0, true);
+        nm.createNotificationChannel(new NotificationChannel(CHANNEL, Tr.t("Game setup"), NotificationManager.IMPORTANCE_LOW));
+        Notification n = notification(Tr.t("Starting"), 0, 0, true);
         if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
         else startForeground(ID, n);
         if (wake == null) {
@@ -62,9 +62,9 @@ public final class SetupService extends Service {
             boolean ok = s != null && s.ok;
             stopForeground(STOP_FOREGROUND_REMOVE);
             Notification.Builder b = base()
-                    .setContentTitle(ok ? "The game is ready" : "Setup stopped")
-                    .setContentText(ok ? "Open Bayonetta 3 Recomp and tap START."
-                            : (s != null && s.error != null ? s.error : "Open the setup to carry on."))
+                    .setContentTitle(Tr.t(ok ? "The game is ready" : "Setup stopped"))
+                    .setContentText(ok ? Tr.t("Open Bayonetta 3 Recomp and tap START.")
+                            : (s != null && s.error != null ? s.error : Tr.t("Open the setup to carry on.")))
                     .setAutoCancel(true);
             nm.notify(ID + 1, b.build());
             if (wake != null && wake.isHeld()) wake.release();
@@ -96,11 +96,11 @@ public final class SetupService extends Service {
         PendingIntent stop = PendingIntent.getService(this, 1, cancel,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification.Builder b = base()
-                .setContentTitle("Setting up the game")
+                .setContentTitle(Tr.t("Setting up the game"))
                 .setContentText(total > 0 ? phase + " · " + done + " / " + total : phase)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .addAction(new Notification.Action.Builder(null, "Cancel", stop).build());
+                .addAction(new Notification.Action.Builder(null, Tr.t("Cancel"), stop).build());
         if (total > 0) b.setProgress(total, Math.min(done, total), false);
         else b.setProgress(0, 0, !first);
         return b.build();

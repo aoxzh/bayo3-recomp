@@ -35,7 +35,7 @@ public final class SetupActivity extends Activity {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         c.setPadding(dp(28), dp(20), dp(28), dp(20));
-        c.addView(Ui.text(this, "Set up the game on this phone", 22, Ui.TEXT, true));
+        c.addView(Ui.text(this, Tr.t("Set up the game on this phone"), 22, Ui.TEXT, true));
         detail = Ui.text(this, "", 13.5f, Ui.MUTED, false);
         detail.setLineSpacing(dp(3), 1);
         detail.setPadding(0, dp(10), 0, dp(12));
@@ -58,11 +58,11 @@ public final class SetupActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.END);
         row.setPadding(0, dp(12), 0, 0);
-        TextView back = Ui.button(this, "Back", false);
+        TextView back = Ui.button(this, Tr.t("Back"), false);
         back.setOnClickListener(v -> finish());
         row.addView(back);
         row.addView(new View(this), new LinearLayout.LayoutParams(dp(12), 1));
-        action = Ui.button(this, "Start setup", true);
+        action = Ui.button(this, Tr.t("Start setup"), true);
         action.setOnClickListener(v -> act());
         row.addView(action);
         c.addView(row, new LinearLayout.LayoutParams(-1, -2));
@@ -109,22 +109,23 @@ public final class SetupActivity extends Activity {
     private void show() {
         String problem = Setup.dumpProblem(this);
         String where = Setup.where(this);
-        detail.setText("Copy the exefs and romfs folders you extracted from your own Bayonetta 3 (update 1.2.0) with "
-                + "your emulator to the phone: " + DataCheck.TITLE + "/dump, or anywhere in Download or Documents, "
-                + "on " + where + " (the setup finds them; Settings > Game folder picks Internal storage or an SD "
-                + "card). The setup moves them into the game's folder on " + where + " (no copy when they are on "
-                + "the same storage), translates the game's code and shaders and compiles them here: about 30 to 60 "
-                + "minutes and 6 GB of free space in Internal storage. Keep the phone charging. You can leave this screen: the setup goes on in the "
-                + "background, its progress in the notification; if it stops, Start setup carries on where it left "
-                + "off. One small file is downloaded (the Kraken decoder's source, which may not ship in the APK); "
-                + "nothing leaves the phone.\n\nFaster: a computer that has set the game up builds it for the phone "
-                + "in a few minutes and copies it over USB (the desktop launcher's Send to my phone).");
+        detail.setText(Tr.f("Copy the exefs and romfs folders you extracted from your own Bayonetta 3 (update 1.2.0) "
+                + "with your emulator to the phone: %1$s/dump, or anywhere in Download or Documents, on %2$s (the setup "
+                + "finds them; Settings > Game folder picks Internal storage or an SD card). The setup moves them into "
+                + "the game's folder on %2$s (no copy when they are on the same storage), translates the game's code "
+                + "and shaders and compiles them here: about 30 to 60 minutes and 6 GB of free space in Internal "
+                + "storage. Keep the phone charging. You can leave this screen: the setup goes on in the background, "
+                + "its progress in the notification; if it stops, Start setup carries on where it left off. One small "
+                + "file is downloaded (the Kraken decoder's source, which may not ship in the APK); nothing leaves the "
+                + "phone.\n\nFaster: a computer that has set the game up builds it for the phone in a few minutes and "
+                + "copies it over USB (the desktop launcher's Send to my phone).", DataCheck.TITLE, where));
         if (setup == null) {
-            status.setText(problem == null ? "Ready to start · game files found in " + Setup.dumpFolder(this) : "Not yet: " + problem);
+            status.setText(problem == null ? Tr.f("Ready to start · game files found in %s", Setup.dumpFolder(this))
+                    : Tr.f("Not yet: %s", problem));
             status.setTextColor(problem == null ? Ui.TEXT : Ui.RED);
             bar.setProgress(0);
             log.setText("");
-            action.setText("Start setup");
+            action.setText(Tr.t("Start setup"));
             action.setAlpha(problem == null ? 1f : 0.55f);
             return;
         }
@@ -140,18 +141,18 @@ public final class SetupActivity extends Activity {
                 status.setTextColor(Ui.TEXT);
                 bar.setIndeterminate(setup.total <= 0);
                 if (setup.total > 0) bar.setProgress((int) (1000L * setup.done / setup.total));
-                action.setText("Stop");
+                action.setText(Tr.t("Stop"));
             } else if (setup.ok) {
-                status.setText("Done: the game is ready");
+                status.setText(Tr.t("Done: the game is ready"));
                 status.setTextColor(Ui.GREEN);
                 bar.setIndeterminate(false);
                 bar.setProgress(1000);
-                action.setText("Back to the launcher");
+                action.setText(Tr.t("Back to the launcher"));
             } else {
-                status.setText(setup.error != null ? setup.error : "Stopped");
+                status.setText(setup.error != null ? setup.error : Tr.t("Stopped"));
                 status.setTextColor(Ui.RED);
                 bar.setIndeterminate(false);
-                action.setText("Start setup");
+                action.setText(Tr.t("Start setup"));
             }
             action.setAlpha(1f);
         }

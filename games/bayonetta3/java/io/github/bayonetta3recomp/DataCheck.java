@@ -98,7 +98,7 @@ final class DataCheck {
 
     String rootLabel() {
         if (label != null) return label;
-        return shared ? "Internal storage/" + TITLE : root.getAbsolutePath();
+        return shared ? Tr.t("Internal storage") + "/" + TITLE : root.getAbsolutePath();
     }
 
     static String size(long bytes) {

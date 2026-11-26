@@ -134,11 +134,11 @@ final class Setup {
     // version 1.2.0, a complete RomFS).
     static String dumpProblem(Context c) {
         if (findDump(c) != null) return null;
-        return "no extracted game found. Extract the ExeFS and the RomFS of your Bayonetta 3 (update 1.2.0 "
+        return Tr.f("no extracted game found. Extract the ExeFS and the RomFS of your Bayonetta 3 (update 1.2.0 "
                 + "installed) with your emulator (Ryujinx: right-click > Extract Data > ExeFS, then RomFS; Eden / "
                 + "yuzu: Dump RomFS > Full, and Dump ExeFS) and copy the folder with exefs and romfs to the phone, "
-                + "for example into " + DataCheck.TITLE + "/dump or Download on the storage the game goes to ("
-                + where(c) + ").";
+                + "for example into %s/dump or Download on the storage the game goes to (%s).", DataCheck.TITLE,
+                where(c));
     }
 
     // "Internal storage" or the SD card's name: where the setup puts the game.
