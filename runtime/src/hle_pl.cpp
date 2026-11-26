@@ -88,10 +88,40 @@ void GetSharedFontLoadState(CPU& c) { c.x[0] = 1; }  // SharedFontLoadState_Load
 void GetSharedFontAddress(CPU& c) { c.x[0] = font(uint32_t(c.x[0])).addr; }
 void GetSharedFontSize(CPU& c) { c.x[0] = font(uint32_t(c.x[0])).size; }
 
+// bool GetSharedFont(int* count, SharedFontData* out, int max, settings::LanguageCode lang): every shared font in
+// priority order, as the SDK fills it from pl:u GetSharedFontInOrderOfPriority (sdk+387f40 in SDK 16): *count gets
+// all six, out gets the first min(count, max) as {u32 type, pad, u64 address, u64 size} (0x18 each). The language's
+// own font comes first (zh-Hans/zh-CN, zh-Hant/zh-TW, ko), then the others in type order, standard first.
+// Bayonetta 3 calls it after a save on some screens (issue #12: FATAL unimplemented service 'pl:u').
+void GetSharedFont(CPU& c) {
+    uint64_t count_at = c.x[0], out = c.x[1];
+    int max = int32_t(c.x[2]);
+    char lang[9] = {};
+    uint64_t code = c.x[3];
+    std::memcpy(lang, &code, 8);
+    uint32_t first = 0;
+    if (!std::strcmp(lang, "zh-Hans") || !std::strcmp(lang, "zh-CN")) first = 1;
+    else if (!std::strcmp(lang, "zh-Hant") || !std::strcmp(lang, "zh-TW")) first = 3;
+    else if (!std::strcmp(lang, "ko")) first = 4;
+    uint32_t order[6] = {first};
+    for (uint32_t t = 0, n = 1; t < 6; t++)
+        if (t != first) order[n++] = t;
+    st<uint32_t>(count_at, 6);
+    for (int i = 0; i < 6 && i < max; i++) {
+        const Font& f = font(order[i]);
+        uint64_t e = out + uint64_t(i) * 0x18;
+        st<uint32_t>(e, order[i]);
+        st<uint64_t>(e + 8, f.addr);
+        st<uint64_t>(e + 0x10, f.size);
+    }
+    c.x[0] = 1;
+}
+
 }  // namespace
 
 NX_HLE("_ZN2nn2pl22GetSharedFontLoadStateENS0_14SharedFontTypeE", GetSharedFontLoadState);
 NX_HLE("_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE", GetSharedFontAddress);
 NX_HLE("_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE", GetSharedFontSize);
+NX_HLE("_ZN2nn2pl13GetSharedFontEPiPNS0_14SharedFontDataEiNS_8settings12LanguageCodeE", GetSharedFont);
 
 }  // namespace nx
