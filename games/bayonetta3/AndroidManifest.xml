@@ -31,6 +31,8 @@
 
     <application
         android:label="Bayonetta 3 Recomp (Development)"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:hasCode="true"
         android:extractNativeLibs="true"
         android:debuggable="true"

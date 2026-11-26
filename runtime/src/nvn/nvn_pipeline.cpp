@@ -615,7 +615,9 @@ VkPipeline compile(PipeBuild& b) {
     if (!p) made = p_vkCreateGraphicsPipelines(vk_device(), b.cache, 1, &b.ci, nullptr, &p);
     note_pipeline_created(plat::monotonic_ns() - t0, t_worker);
     if (made != VK_SUCCESS) {
-        log("nvn/vk: pipeline for %s + %s failed", b.vs_hash.c_str(), b.fs_hash.c_str());
+        // The driver's own result, so a log from a GPU that rejects pipelines (Mali, #9 / #13) says why.
+        log("nvn/vk: pipeline for %s + %s failed (VkResult %d, %u stages)", b.vs_hash.c_str(), b.fs_hash.c_str(),
+            int(made), b.ci.stageCount);
         p = VK_NULL_HANDLE;
     } else if (g_trace) {
         log("nvn/vk: pipeline: %s + %s", b.vs_hash.c_str(), b.fs_hash.c_str());

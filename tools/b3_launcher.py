@@ -35,6 +35,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import b3_launcher_config as cfg  # noqa: E402
+import b3_update  # noqa: E402
 from b3_i18n import _  # noqa: E402
 
 # ---- the look ---------------------------------------------------------------------------------------------------
@@ -56,6 +57,7 @@ MAGENTA = '#d651dc'
 OFF = '#383352'         # a switch that is off
 RED = '#ff5f7a'         # an error in the status line
 BACKGROUND_ART = Path(__file__).resolve().parent / 'launcher_assets' / 'background.jpg'
+ICON_ART = Path(__file__).resolve().parent / 'launcher_assets' / 'icon.png'  # the window's and the shortcuts' icon
 
 # Fonts are resolved once the first Tk root exists (the family list needs one): the first family this Tk has wins.
 # Asking Tk for a missing family silently gives a bitmap fallback, so nothing here is taken on trust.
@@ -647,11 +649,23 @@ class Launcher(tk.Tk):
         self.task_lines = queue.Queue()
         self.task_log = []
         self.task_step, self.task_done, self.task_total = '', 0, 1
+        self.update_found = None  # (tag, url) of a newer release, from b3_update in the background
         self.exit_text = None  # the game's last exit, kept on the home screen until something else is said
 
         _pick_fonts(self)    # before any widget: every font and canvas length below reads the result
         self.backdrop = Backdrop()
         self.title('Bayonetta 3')
+        if sys.platform == 'win32':  # its own taskbar entry and icon, not pythonw's
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('Bayonetta3Recomp.Launcher')
+            except (AttributeError, OSError):
+                pass
+        try:
+            self._icon = tk.PhotoImage(file=str(ICON_ART))  # kept: Tk drops an image nothing holds
+            self.iconphoto(True, self._icon)
+        except (tk.TclError, OSError):
+            pass
         # Sized to fit above a taskbar or a Deck's overlay: the screen less the title bar and the bar, centred.
         screen_w, screen_h = self.winfo_screenwidth(), self.winfo_screenheight()
         win_w, win_h = min(px(1120), screen_w - px(40)), min(px(760), screen_h - px(140))
@@ -679,6 +693,8 @@ class Launcher(tk.Tk):
         self.after(300, self._poll_proc)
         self.after(300, self._poll_task)
         self.after(1000, self._poll_log)
+        if cfg.is_on(self.conf.effective(next(s for s in cfg.SETTINGS if s.key == 'check_updates'))):
+            threading.Thread(target=self._check_update, daemon=True).start()
 
     def destroy(self):
         self.pad.close()
@@ -763,6 +779,27 @@ class Launcher(tk.Tk):
         c.create_line(x, y + px(82 * size), x + px(48 * size), y + px(82 * size), fill=GOLD, width=px(2),
                       tags=('chrome',))
 
+    def _check_update(self):
+        found = b3_update.check(self.root)
+        if found:
+            self.after(0, lambda: (setattr(self, 'update_found', found), self._schedule_layout()))
+
+    def _link(self, x, y, text, url, colour, tag, size=10):
+        """A clickable line of text, right-aligned at x, that opens url in the browser."""
+        c = self.canvas
+        self._text(x, y, text, (UI, size, 'bold'), colour, anchor='e', tags=(tag,))
+        c.tag_bind(tag, '<Button-1>', lambda _e: self._open_url(url))
+        c.tag_bind(tag, '<Enter>', lambda _e: c.configure(cursor='hand2'))
+        c.tag_bind(tag, '<Leave>', lambda _e: c.configure(cursor=''))
+
+    @staticmethod
+    def _open_url(url):
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception:
+            pass
+
     def _layout_home(self, w, h):
         c = self.canvas
         if self.backdrop.available():
@@ -770,6 +807,13 @@ class Launcher(tk.Tk):
         left = px(72)
         self._brand(left, px(70))
         self._text(left, px(178), _('Native build of the Switch game · bring your own game files'), (UI, 10), MUTED)
+        # Top right: the author's X profile, and a newer release when the start-up check found one.
+        self._link(w - px(64), px(60), _('Follow the author on X: @aoxzh') + '  ↗', b3_update.AUTHOR_URL, CYAN,
+                   'follow')
+        if self.update_found:
+            tag, url = self.update_found
+            self._link(w - px(64), px(90), _('Update available: {tag}').format(tag=tag) + '  ↗', url, GOLD,
+                       'update', size=11)
         # The menu: large serif words, the selected one gold with a cyan diamond, as a pad-first menu reads.
         labels = {'play': _('Stop game') if self.proc is not None else _('Start game'), 'settings': _('Settings'),
                   'log': _('Hide game log') if self.log_shown else _('Game log'), 'report': _('Report a bug'),

@@ -10,7 +10,7 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 APPS=${XDG_DATA_HOME:-$HOME/.local/share}/applications
 ENTRY=$APPS/bayonetta3-recomp.desktop
 DESKTOP_DIR=$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")
-ICON=$ROOT/docs/icon.png
+ICON=$ROOT/tools/launcher_assets/icon.png
 [[ -f $ICON ]] || ICON=applications-games
 
 if [[ ${1:-} == --remove ]]; then

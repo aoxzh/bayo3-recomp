@@ -133,11 +133,12 @@ def issue_url(root, report: Path, host=None) -> str:
                 if m:
                     lines.append(f'- GPU: {m.group(1)}')
                     break
-    body = ('**What happened?** (what you did, what you saw, what you expected)\n\n\n'
-            '**Where?** (chapter or menu, or right at the start)\n\n\n'
-            f'**Bug report:** drag `{report.name}` here. It just opened in a folder on your computer; it holds the '
-            'logs and settings, no game files.\n\n---\n' + '\n'.join(lines) + '\n')
-    return ISSUES + '?' + urlencode({'title': '[Bug] ', 'body': body})
+    # The issue form (.github/ISSUE_TEMPLATE/bug.yml): What happened and Where are required there, so an issue
+    # always says something; the zip's name and the details are filled in.
+    report_text = (f'Drag {report.name} here. It just opened in a folder on your computer; it holds the logs and '
+                   'settings, no game files.')
+    return ISSUES + '?' + urlencode({'template': 'bug.yml', 'title': '[Bug] ', 'report': report_text,
+                                     'device': '\n'.join(x[2:] for x in lines)})
 
 
 def main():

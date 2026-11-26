@@ -53,6 +53,7 @@ mouse_invert_y=0         # 1: moving the mouse up turns the camera down
 language=system          # system (the PC's language), en-US, en-GB, ja, fr, fr-CA, de, it, es, es-419, ko, ru, zh-Hans, zh-Hant
 handheld=0               # 1: the game renders 1280x720 (handheld) instead of 1600x900 (docked): lighter; Steam Deck
 # log=/path/to/b3.log   # default: <repo>/private/b3.log
+check_updates=1          # 1: at start the launcher asks GitHub whether a newer release is out (nothing is downloaded)
 
 gpu_clock=               # Optional Steam Deck GPU clock in MHz; empty leaves the default clock unchanged.
 

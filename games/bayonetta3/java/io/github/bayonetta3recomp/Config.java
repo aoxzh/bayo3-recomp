@@ -22,7 +22,7 @@ import java.util.Set;
 // keys in MANAGED; every other line (test switches written by scripts, comments) is kept as it is, in its place.
 final class Config {
     static final String[] MANAGED = {"NX_PROFILE", "NX_FPS_CAP", "NX_DISPLAY_HZ", "language", "NX_PAD_SWAP", "NX_MUTE",
-            "NX_TOUCH_SHOW", "NX_TOUCH_OPACITY", "NX_TOUCH_SIZE"};
+            "NX_TOUCH_SHOW", "NX_TOUCH_OPACITY", "NX_TOUCH_SIZE", "NX_MENU_COMBO"};
     static final Set<String> MANAGED_SET = new HashSet<>(Arrays.asList(MANAGED));
     private static final String HEADER = "# set by the launcher (profile and settings):";
 

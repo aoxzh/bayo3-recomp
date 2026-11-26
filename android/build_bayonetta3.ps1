@@ -89,8 +89,11 @@ if (Test-Path $opus) {
     Write-Warning "$opus missing: the game stops at startup in hwopus (tools/build_opus_android.sh)"
 }
 $base = Join-Path $stage "base.apk"
+$res = Join-Path $stage "res.zip"  # the app icon
+& (Join-Path $bt.FullName "aapt2.exe") compile --dir (Join-Path $root "games\bayonetta3\res") -o $res
+if ($LASTEXITCODE) { throw "aapt2 compile failed" }
 & (Join-Path $bt.FullName "aapt2.exe") link -o $base -I $jar --manifest (Join-Path $root "games\bayonetta3\AndroidManifest.xml") `
-    --min-sdk-version 29 --target-sdk-version 35
+    --min-sdk-version 29 --target-sdk-version 35 -R $res --auto-add-overlay
 if ($LASTEXITCODE) { throw "aapt2 link failed" }
 # The launcher's Java (games\bayonetta3\java): javac against the platform's android.jar, d8 to classes.dex. No Gradle.
 Need javac "a JDK (set JAVA_HOME)"

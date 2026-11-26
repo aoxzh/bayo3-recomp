@@ -143,6 +143,9 @@ SETTINGS = (
     Setting('handheld', 'Handheld mode', 'bool', 'system', default='0',
             help='The game renders 1280 x 720 instead of docked 1600 x 900 (a lighter GPU load).'),
     Setting('log', 'Log file', 'text', 'system', help='Default: <repo>/private/b3.log.'),
+    Setting('check_updates', 'Check for updates', 'bool', 'system', default='1',
+            help='At start, ask GitHub whether a newer release is out and say so on the home screen. '
+                 'Nothing is downloaded or installed by itself.'),
     Setting('mute', 'Mute', 'bool', 'audio', default='0', help='No audio output.'),
     Setting('render_res', 'Display resolution answer', 'choice', 'advanced', choices=RENDER_RES,
             help='NX_RENDER_RES: the resolution reported to the game. Other ports render at it; Bayonetta 3 renders '
@@ -573,7 +576,7 @@ def desktop_entry(root):
     root = Path(root)
     release = root / 'Bayonetta3Recomp.sh'
     target = release if release.is_file() else root / 'scripts' / 'b3_launcher.sh'
-    icon = root / 'docs' / 'icon.png'
+    icon = root / 'tools' / 'launcher_assets' / 'icon.png'
     return ('[Desktop Entry]\nType=Application\nName=Bayonetta 3\nComment=Bayonetta 3 recomp launcher\n'
             f'Exec="{target}"\nPath={root}\nIcon={icon if icon.is_file() else "applications-games"}\n'
             'Terminal=false\nCategories=Game;\nStartupWMClass=bayonetta3\n')
@@ -606,9 +609,10 @@ def _windows_shortcut(root):
     icon = root / 'private' / 'b3.ico'
     try:
         from PIL import Image
-        if not icon.is_file():
+        art = root / 'tools' / 'launcher_assets' / 'icon.png'
+        if not icon.is_file() or icon.stat().st_mtime < art.stat().st_mtime:  # made again when the art changes
             icon.parent.mkdir(parents=True, exist_ok=True)
-            Image.open(root / 'docs' / 'icon.png').save(icon, sizes=[(256, 256), (64, 64), (48, 48), (32, 32),
+            Image.open(art).save(icon, sizes=[(256, 256), (64, 64), (48, 48), (32, 32),
                                                                     (16, 16)])
     except Exception:  # no Pillow or no icon: the shortcut takes Python's
         icon = pythonw

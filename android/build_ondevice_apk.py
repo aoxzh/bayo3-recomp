@@ -138,8 +138,11 @@ def main():
 
     manifest(stage / 'AndroidManifest.xml', version, version_code(version), a.test_package)
     rename = ['--rename-manifest-package', a.test_package] if a.test_package else []
+    # The app icon (games/bayonetta3/res: an adaptive icon over the art in tools/launcher_assets/icon.png).
+    run([tool(bt, 'aapt2'), 'compile', '--dir', ROOT / 'games/bayonetta3/res', '-o', stage / 'res.zip'])
     run([tool(bt, 'aapt2'), 'link', '-o', stage / 'base.apk', '-I', jar, '--manifest', stage / 'AndroidManifest.xml',
-         '--min-sdk-version', '29', '--target-sdk-version', '35', '-A', stage / 'assets', '-0', 'zip', *rename])
+         '--min-sdk-version', '29', '--target-sdk-version', '35', '-A', stage / 'assets', '-0', 'zip', *rename,
+         '-R', stage / 'res.zip', '--auto-add-overlay'])
     sources = sorted(str(s) for s in (ROOT / 'games/bayonetta3/java').rglob('*.java'))
     run(['javac', '--release', '8', '-Xlint:-options', '-encoding', 'UTF-8', '-classpath', jar, '-d', stage / 'classes',
          *sources])

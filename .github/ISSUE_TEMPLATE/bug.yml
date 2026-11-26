@@ -1,0 +1,31 @@
+# The form both launchers' Report a bug opens (tools/b3_report.py issue_url, Report.java openIssue), with `report`
+# and `device` filled in. "What happened" and "Where" are required: an issue with only the template text says nothing.
+name: Bug report
+description: Something went wrong in the game or a launcher
+title: "[Bug] "
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where?
+      description: The chapter or menu, or "right at the start", or "during setup".
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Bug report zip
+      description: Drag the zip from Report a bug here. It holds the logs and settings, no game files.
+  - type: textarea
+    id: device
+    attributes:
+      label: Version and device
+      description: Filled in by the launcher.
+      render: text

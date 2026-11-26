@@ -94,6 +94,18 @@ uint64_t key_to_button(int32_t k) {
     }
 }
 
+// NX_MENU_COMBO (the launcher's Menu button): a pair of controller buttons that opens the in-game menu, for a device
+// whose Guide/Home button is the system's (#12). select_start = Select + Start, l3_r3 = both stick clicks; unset: none,
+// Guide and Back x3 only. Read once.
+uint64_t menu_combo() {
+    static const uint64_t mask = [] {
+        const char* e = std::getenv("NX_MENU_COMBO");
+        const std::string v = e ? e : "";
+        return v == "select_start" ? (kMinus | kPlus) : v == "l3_r3" ? (kStickL | kStickR) : uint64_t(0);
+    }();
+    return mask;
+}
+
 uint64_t touch_button(float x, float y) {
     float nx_ = x / g_w, ny = y / g_h;
     if (ny < 0.2f) return nx_ < 0.6f ? (nx_ < 0.45f ? kL : kPlus) : (nx_ > 0.85f ? kR : kZR);
@@ -149,9 +161,18 @@ int32_t on_input(android_app*, AInputEvent* e) {
         g_gamepad = true;
         if (src & (AINPUT_SOURCE_GAMEPAD & ~AINPUT_SOURCE_CLASS_BUTTON))  // a controller's key, not the phone's Back
             g_pad_device.store(AInputEvent_getDeviceId(e), std::memory_order_relaxed);
-        if (AKeyEvent_getAction(e) == AKEY_EVENT_ACTION_DOWN)
+        if (AKeyEvent_getAction(e) == AKEY_EVENT_ACTION_DOWN) {
             g_pad_buttons.buttons |= b;
-        else if (AKeyEvent_getAction(e) == AKEY_EVENT_ACTION_UP)
+            // The pair's second button: the menu, which lets go of every held button (release_input) so neither
+            // stays down in the game. The first one already reached it, briefly.
+            const uint64_t combo = menu_combo();
+            if (combo && (b & combo) && (g_pad_buttons.buttons & combo) == combo &&
+                AKeyEvent_getRepeatCount(e) == 0) {
+                g_in.unlock();
+                open_menu();
+                g_in.lock();
+            }
+        } else if (AKeyEvent_getAction(e) == AKEY_EVENT_ACTION_UP)
             g_pad_buttons.buttons &= ~b;
         return 1;
     }

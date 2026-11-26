@@ -132,17 +132,18 @@ final class Report {
     }
 
     private static void openIssue(Activity a, String zipName, String gpu) {
-        String body = "**What happened?** (what you did, what you saw, what you expected)\n\n\n"
-                + "**Where?** (chapter or menu, or right at the start)\n\n\n"
-                + "**Bug report:** attach `" + zipName + "` from your phone's Downloads folder (logs and settings, "
-                + "no game files).\n\n---\n"
-                + "- app: " + appVersion(a) + "\n"
-                + "- android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\n"
-                + "- chip: " + ChipInfo.soc() + "\n"
-                + "- GPU: " + (gpu == null ? "?" : gpu) + "\n";
+        // The issue form (.github/ISSUE_TEMPLATE/bug.yml): What happened and Where are required there, so an
+        // issue always says something; the zip's name and the phone's details are filled in.
+        String device = "app: " + appVersion(a) + "\n"
+                + "android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\n"
+                + "chip: " + ChipInfo.soc() + "\n"
+                + "GPU: " + (gpu == null ? "?" : gpu);
         Uri uri = Uri.parse("https://github.com/aoxzh/bayo3-recomp/issues/new").buildUpon()
+                .appendQueryParameter("template", "bug.yml")
                 .appendQueryParameter("title", "[Bug][Android] ")
-                .appendQueryParameter("body", body).build();
+                .appendQueryParameter("report", "Attach " + zipName + " from your phone's Downloads folder "
+                        + "(logs and settings, no game files).")
+                .appendQueryParameter("device", device).build();
         try {
             a.startActivity(new Intent(Intent.ACTION_VIEW, uri));
         } catch (Exception e) {

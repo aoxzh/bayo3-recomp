@@ -152,9 +152,10 @@ fi
 # RomFS, NSO, keys or shaders are added.
 mkdir -p "$stage/assets/launcher" "$stage/classes" "$stage/dex"
 cp "$root/tools/launcher_assets/background.jpg" "$stage/assets/launcher/background.jpg"
+"$bt/aapt2" compile --dir "$root/games/bayonetta3/res" -o "$stage/res.zip"  # the app icon
 "$bt/aapt2" link -o "$stage/base.apk" -I "$jar" \
     --manifest "$root/games/bayonetta3/AndroidManifest.xml" \
-    --min-sdk-version 29 --target-sdk-version 35 -A "$stage/assets"
+    --min-sdk-version 29 --target-sdk-version 35 -A "$stage/assets" -R "$stage/res.zip" --auto-add-overlay
 # --release 8 with android.jar on the classpath: API 36's android.jar has no LambdaMetafactory javac 21+ accepts.
 mapfile -t java_sources < <(find "$root/games/bayonetta3/java" -name '*.java' | sort)
 javac --release 8 -Xlint:-options -encoding UTF-8 -classpath "$jar" -d "$stage/classes" "${java_sources[@]}"

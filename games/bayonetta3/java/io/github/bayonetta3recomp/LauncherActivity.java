@@ -64,6 +64,9 @@ public final class LauncherActivity extends Activity {
             {"es", "Español"}, {"es-419", "Español (Latinoamérica)"}, {"nl", "Nederlands"},
             {"pt", "Português"}, {"pt-BR", "Português (Brasil)"}, {"ru", "Русский"},
             {"ko", "한국어"}, {"zh-Hans", "简体中文"}, {"zh-Hant", "繁體中文"}};
+    // NX_MENU_COMBO: a controller pair that opens the in-game menu, besides Guide and Back x3 (#12).
+    private static final String[][] MENU = {{"", Tr.t("Guide or Back x3")}, {"select_start", Tr.t("Select + Start")},
+            {"l3_r3", Tr.t("L3 + R3")}};
     private static final String[][] TOUCH = {{"1", Tr.t("Hide with a pad")}, {"2", Tr.t("Always")}, {"0", Tr.t("Off")}};
     private static final int[] OPACITY = {40, 55, 70, 85, 100};
     private static final int[] SIZE = {70, 85, 100, 115, 130};
@@ -90,8 +93,11 @@ public final class LauncherActivity extends Activity {
     private final LinearLayout[] profileRows = new LinearLayout[PROFILES.length];
     private TextView dataValue, cacheValue, padValue, chipValue, heatValue, note;
     private LinearLayout gameModeCard;
+    private LinearLayout updateCard;  // a newer release on GitHub (Updates.check), hidden until one is found
+    private TextView updateTitle;
+    private String updateUrl = Updates.RELEASES;
     private View dataDot, cacheDot, padDot, heatDot;
-    private Ui.Row langRow, swapRow, muteRow, touchRow, opacityRow, sizeRow, folderRow;
+    private Ui.Row langRow, swapRow, menuRow, updatesRow, muteRow, touchRow, opacityRow, sizeRow, folderRow;
     private LinearLayout advanced;
     private TextView advancedRow, folderText;
     private EditText advancedText;
@@ -111,6 +117,11 @@ public final class LauncherActivity extends Activity {
         setContentView(root);
         hideBars();
         loadArt();
+        Updates.check(this, (tag, url) -> {
+            updateUrl = url;
+            updateTitle.setText("⬆  " + Tr.f("Update available: %s", tag));
+            updateCard.setVisibility(View.VISIBLE);
+        });
         new Thread(() -> {
             String g = null;
             try {
@@ -276,11 +287,19 @@ public final class LauncherActivity extends Activity {
         // Left: the title and the status card.
         LinearLayout left = new LinearLayout(this);
         left.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView icon = new ImageView(this);  // the app icon (games/bayonetta3/res)
+        icon.setImageResource(getApplicationInfo().icon);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        ilp.rightMargin = dp(12);
+        titleRow.addView(icon, ilp);
         TextView title = Ui.text(this, "BAYONETTA 3", 34, Ui.TEXT, false);
         title.setTypeface(Typeface.create("serif", Typeface.BOLD));
         title.setLetterSpacing(0.08f);
         title.setShadowLayer(dp(10), 0, 0, Ui.alpha(Ui.CYAN, 0x60));
-        left.addView(title);
+        titleRow.addView(title);
+        left.addView(titleRow);
         TextView sub = Ui.text(this, Tr.t("Static recompilation · Android"), 13, Ui.MUTED, false);
         sub.setLetterSpacing(0.04f);
         sub.setPadding(0, dp(6), 0, dp(14));
@@ -301,6 +320,7 @@ public final class LauncherActivity extends Activity {
         heatValue = statusRow(card, Tr.t("Temperature"), heatDot);
         left.addView(card, new LinearLayout.LayoutParams(-1, -2));
         left.addView(buildGameModeCard(), gameModeParams());
+        left.addView(buildUpdateCard(), gameModeParams());
         View fill = new View(this);
         left.addView(fill, new LinearLayout.LayoutParams(-1, 0, 1));
         hints = Ui.text(this, Tr.t("Ⓐ Select    Ⓑ Back    ☰ Start    L1 / R1  Profile    Ⓨ Settings"), 12,
@@ -321,6 +341,10 @@ public final class LauncherActivity extends Activity {
         right.setOrientation(LinearLayout.VERTICAL);
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.END);
+        TextView follow = Ui.button(this, Tr.t("Follow @aoxzh"), false);
+        follow.setOnClickListener(v -> Updates.open(this, Updates.AUTHOR));
+        top.addView(follow);
+        top.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
         TextView report = Ui.button(this, Tr.t("Report a bug"), false);
         report.setOnClickListener(v -> reportIssue());
         top.addView(report);
@@ -463,6 +487,12 @@ public final class LauncherActivity extends Activity {
         };
         swapRow = row(list, Tr.t("Xbox button layout"), Tr.t("On: the button marked A is the game's A. Off: by position, as on Switch"));
         swapRow.stepper = d -> { cfg.set("NX_PAD_SWAP", on("NX_PAD_SWAP") ? null : "1"); saveAndShow(); };
+        menuRow = row(list, Tr.t("Menu button"), Tr.t("Opens the in-game menu. Guide and Back x3 always work too"));
+        menuRow.stepper = d -> {
+            int i = (index(MENU, cfg.get("NX_MENU_COMBO", "")) + d + MENU.length) % MENU.length;
+            cfg.set("NX_MENU_COMBO", MENU[i][0].isEmpty() ? null : MENU[i][0]);
+            saveAndShow();
+        };
         muteRow = row(list, Tr.t("Mute"), Tr.t("No sound at all"));
         muteRow.stepper = d -> { cfg.set("NX_MUTE", on("NX_MUTE") ? null : "1"); saveAndShow(); };
         section(list, Tr.t("TOUCH CONTROLS"));
@@ -486,6 +516,12 @@ public final class LauncherActivity extends Activity {
         Ui.Row share = row(list, Tr.t("Share a bug report"), Tr.t("A zip of nx.log, config.txt and the chip info, through the share sheet"));
         share.value.setText("›");
         share.setOnClickListener(v -> shareReport());
+        updatesRow = row(list, Tr.t("Check for updates"), Tr.t("When the launcher opens, ask GitHub whether a newer "
+                + "version is out. Nothing is downloaded by itself"));
+        updatesRow.stepper = d -> { Updates.setEnabled(this, !Updates.enabled(this)); showSettings(); };
+        Ui.Row followRow = row(list, Tr.t("Follow the author"), Tr.t("@aoxzh on X: news, previews and releases"));
+        followRow.value.setText("›");
+        followRow.setOnClickListener(v -> Updates.open(this, Updates.AUTHOR));
 
         advancedRow = Ui.text(this, Tr.t("Advanced") + "  ▸", 14, Ui.MUTED, true);
         advancedRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -624,6 +660,9 @@ public final class LauncherActivity extends Activity {
         String lang = cfg.get("language", "");
         langRow.show(LANGUAGES[index(LANGUAGES, lang)][1], true);
         swapRow.show(Tr.t(on("NX_PAD_SWAP") ? "On" : "Off"), on("NX_PAD_SWAP"));
+        updatesRow.show(Tr.t(Updates.enabled(this) ? "On" : "Off"), Updates.enabled(this));
+        String menu = cfg.get("NX_MENU_COMBO", "");
+        menuRow.show(MENU[index(MENU, menu)][1], !menu.isEmpty());
         muteRow.show(Tr.t(on("NX_MUTE") ? "On" : "Off"), on("NX_MUTE"));
         String touch = cfg.get("NX_TOUCH_SHOW", "1");
         touchRow.show(TOUCH[index(TOUCH, touch)][1], !touch.equals("0"));
@@ -725,6 +764,31 @@ public final class LauncherActivity extends Activity {
         row.addView(done);
         gameModeCard.addView(row, new LinearLayout.LayoutParams(-1, -2));
         return gameModeCard;
+    }
+
+    private View buildUpdateCard() {
+        updateCard = new LinearLayout(this);
+        updateCard.setOrientation(LinearLayout.VERTICAL);
+        updateCard.setPadding(dp(16), dp(12), dp(16), dp(12));
+        updateCard.setBackground(Ui.rect(this, Ui.alpha(Ui.PANEL, 0xe0), Ui.CYAN, 2, 16));
+        updateTitle = Ui.text(this, "", 15, Ui.CYAN, true);
+        updateCard.addView(updateTitle);
+        TextView how = Ui.text(this, Tr.t("Download the new APK and install it over this app, then tap SET UP "
+                + "again. Your game files and saves stay."), 12.5f, Ui.TEXT, false);
+        how.setPadding(0, dp(6), 0, dp(8));
+        updateCard.addView(how);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.END);
+        TextView later = Ui.button(this, Tr.t("Later"), false);
+        later.setOnClickListener(v -> { updateCard.setVisibility(View.GONE); start.requestFocus(); });
+        row.addView(later);
+        row.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
+        TextView get = Ui.button(this, Tr.t("Open the release page"), false);
+        get.setOnClickListener(v -> Updates.open(this, updateUrl));
+        row.addView(get);
+        updateCard.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        updateCard.setVisibility(View.GONE);
+        return updateCard;
     }
 
     private LinearLayout.LayoutParams gameModeParams() {

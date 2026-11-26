@@ -39,6 +39,13 @@ TEXT = {
     'Default': ('默认', '既定'),
     'Default {hint}': ('默认 {hint}', '既定 {hint}'),
     'Desktop shortcut': ('桌面快捷方式', 'デスクトップのショートカット'),
+    'Follow the author on X: @aoxzh': ('在 X 上关注作者：@aoxzh', 'X で作者をフォロー：@aoxzh'),
+    'Update available: {tag}': ('有新版本：{tag}', '新しいバージョンがあります：{tag}'),
+    'Check for updates': ('检查更新', '更新を確認'),
+    'At start, ask GitHub whether a newer release is out and say so on the home screen. Nothing is downloaded or '
+    'installed by itself.':
+        ('启动时向 GitHub 查询是否有新版本，有的话在首页提示。不会自动下载或安装任何东西。',
+         '起動時に GitHub で新しいリリースがあるか確認し、あればホーム画面に表示します。自動でダウンロードやインストールはしません。'),
     'Shortcut: {paths}': ('快捷方式：{paths}', 'ショートカット：{paths}'),
     'Could not make the shortcut: {e}': ('无法创建快捷方式：{e}', 'ショートカットを作れません：{e}'),
     'Could not open {folder}: {e}': ('无法打开 {folder}：{e}', '{folder} を開けません：{e}'),
