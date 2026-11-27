@@ -39,7 +39,7 @@ import b3_update  # noqa: E402
 from b3_i18n import _  # noqa: E402
 
 # ---- the look ---------------------------------------------------------------------------------------------------
-# Taken from the background art (tools/launcher_assets/background.jpg): a rain-dark night city, cyan neon for focus
+# Taken from the background art (tools/launcher_assets/background.jpg): a moonlit balcony over a violet night city; cyan for focus
 # and selection, gold for the one thing to do next (Start game, the switch that is on), magenta used sparingly.
 BG = '#0b0a14'          # behind everything, and the colour the art is darkened towards
 PANEL = '#13111f'       # the frosted settings panel (the art under it is blurred and tinted to this)
@@ -136,7 +136,7 @@ class Backdrop:
         sw, sh = self.source.size
         scale = max(w / sw, h / sh)
         img = self.source.resize((max(w, int(sw * scale + 0.5)), max(h, int(sh * scale + 0.5))), Image.LANCZOS)
-        left, top = (img.width - w) // 2, int((img.height - h) * 0.35)  # keep the moon and spires in view
+        left, top = (img.width - w) // 2, int((img.height - h) * 0.35)  # keep the moon and the skyline in view
         return img.crop((left, top, left + w, top + h))
 
     @staticmethod
@@ -157,15 +157,24 @@ class Backdrop:
         strip.putdata(values)
         return strip
 
-    def home(self, w, h):
-        key = ('home', w, h)
+    def home(self, w, h, panels=(), radius=0):
+        """The home art, darkened at the left and the bottom, with frosted glass under each of `panels`."""
+        key = ('home', w, h, tuple(panels))
         if key not in self.cache:
-            from PIL import Image, ImageChops, ImageTk
+            from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageTk
             img = self._cover(w, h)
-            across = self._ramp(w, [(0, 0.86), (0.42, 0.45), (0.7, 0.12), (1, 0.18)], True).resize((w, h))
-            down = self._ramp(h, [(0, 0.35), (0.12, 0.05), (0.55, 0.05), (1, 0.85)], False).resize((w, h))
+            across = self._ramp(w, [(0, 0.80), (0.40, 0.40), (0.7, 0.08), (1, 0.16)], True).resize((w, h))
+            down = self._ramp(h, [(0, 0.30), (0.12, 0.04), (0.55, 0.04), (1, 0.70)], False).resize((w, h))
             mask = ImageChops.lighter(across, down)
             img = Image.composite(Image.new('RGB', (w, h), _rgb(BG)), img, mask)
+            if panels:
+                glass = img.filter(ImageFilter.GaussianBlur(px(16)))
+                glass = Image.blend(glass, Image.new('RGB', (w, h), _rgb(PANEL)), 0.62)
+                pmask = Image.new('L', (w, h), 0)
+                draw = ImageDraw.Draw(pmask)
+                for box in panels:
+                    draw.rounded_rectangle(box, radius=radius, fill=255)
+                img = Image.composite(glass, img, pmask)
             self.cache = {k: v for k, v in self.cache.items() if k[0] != 'home'}
             self.cache[key] = ImageTk.PhotoImage(img)
         return self.cache[key]
@@ -849,73 +858,144 @@ class Launcher(tk.Tk):
         except Exception:
             pass
 
+    # The home screen's menu: what each entry says, and the few that are the main action (a gold button).
+    PRIMARY = ('play', 'setup')
+
+    def _menu_labels(self):
+        return {'play': _('Stop game') if self.proc is not None else _('Start game'), 'settings': _('Settings'),
+                'log': _('Hide game log') if self.log_shown else _('Game log'), 'report': _('Report a bug'),
+                'quit': _('Quit'),
+                'setup': _('Setting up…') if self.task else _('Set up from my dump'),
+                'rebuild': _('Rebuilding…') if self.task else _('Rebuild'),
+                'update': (_('Update to {tag}').format(tag=self.update_found['tag'])
+                           if self.update_found else _('Update now')),
+                'phone': _('Sending to the phone…') if self.task else _('Send to my phone')}
+
     def _layout_home(self, w, h):
+        """The title at the top left; the menu on a glass card at the bottom left (Start as a gold button, the rest
+        as rows); the state of things on a card at the bottom right; an update notice at the top right."""
         c = self.canvas
-        if self.backdrop.available():
-            c.create_image(0, 0, image=self.backdrop.home(w, h), anchor='nw', tags=('chrome', 'backdrop'))
-        left = px(72)
-        self._brand(left, px(70))
-        self._text(left, px(178), _('Native build of the Switch game · bring your own game files'), (UI, 10), MUTED)
-        # Top right: the author's X profile, and a newer release when the start-up check found one.
-        self._link(w - px(64), px(60), _('Follow the author on X: @aoxzh') + '  ↗', b3_update.AUTHOR_URL, CYAN,
-                   'follow')
-        if self.updating:
-            self._text(w - px(64), px(90), self.updating, (UI, 11, 'bold'), GOLD, anchor='e')
-        elif self.update_found:
-            self._link(w - px(64), px(90), _('Update available: {tag}').format(tag=self.update_found['tag'])
-                       + '  ·  ' + _('Update now'), self.start_update, GOLD, 'update', size=11)
-            self._link(w - px(64), px(116), _("What's new") + '  ↗', self.update_found['url'], MUTED, 'notes',
-                       size=9)
-        # The menu: large serif words, the selected one gold with a cyan diamond, as a pad-first menu reads.
-        labels = {'play': _('Stop game') if self.proc is not None else _('Start game'), 'settings': _('Settings'),
-                  'log': _('Hide game log') if self.log_shown else _('Game log'), 'report': _('Report a bug'),
-                  'quit': _('Quit'),
-                  'setup': _('Setting up…') if self.task else _('Set up from my dump'),
-                  'rebuild': _('Rebuilding…') if self.task else _('Rebuild'),
-                  'update': (_('Update to {tag}').format(tag=self.update_found['tag'])
-                             if self.update_found else _('Update now')),
-                  'phone': _('Sending to the phone…') if self.task else _('Send to my phone')}
-        step = px(54)
+        margin, radius = px(56), px(16)
         menu = self._menu()
-        top = h - px(84) - step * (len(menu) - 1)
-        for i, key in enumerate(menu):
-            y = top + i * step
-            selected = i == self.menu_index
-            big = key in ('play', 'setup')
-            font = (DISPLAY, 26 if big else 19, 'bold' if big and selected else 'normal')
-            item = self._text(left, y, labels[key], font, GOLD if selected else (TEXT if big else MUTED),
-                              tags=(f'menu{i}',))
-            if selected:
-                d = px(6)
-                c.create_polygon(left - px(26), y, left - px(26) + d, y - d, left - px(26) + 2 * d, y,
-                                 left - px(26) + d, y + d, fill=CYAN, outline='', tags=('chrome',))
-                x2 = c.bbox(item)[2]
-                c.create_line(left, y + px(22 if big else 17), x2, y + px(22 if big else 17), fill=GOLD_DIM,
-                              width=px(1), tags=('chrome',))
-            c.tag_bind(f'menu{i}', '<Enter>', lambda _e, i=i: self._menu_select(i))
-            c.tag_bind(f'menu{i}', '<Button-1>', lambda _e, i=i: (self._menu_select(i), self._menu_activate()))
-            c.tag_bind(f'menu{i}', '<Enter>', lambda _e: c.configure(cursor='hand2'), add='+')
-            c.tag_bind(f'menu{i}', '<Leave>', lambda _e: c.configure(cursor=''))
-        # The state of things, lower right: can it start, is a controller there, what will it run at.
-        right, y = w - px(64), h - px(84)
-        lines = [(self._run_state(), self.status_bad), (self._pad_text(), False), (self._describe(), False)]
-        dots = [self._run_colour(), self._pad_colour(), None]
-        for (text, bad), dot in zip(reversed(lines), reversed(dots)):
-            item = self._text(right, y, text, (UI, 10), RED if bad else (TEXT if dot else MUTED), anchor='e')
-            if dot:
-                x1 = c.bbox(item)[0] - px(16)
-                c.create_oval(x1, y - px(4), x1 + px(8), y + px(4), fill=dot, outline='', tags=('chrome',))
-            y -= px(26)
-        if self.task is not None:  # the setup or update's progress, above the state lines
-            bar_w, bar_y = px(300), y - px(10)
-            c.create_rectangle(right - bar_w, bar_y, right, bar_y + px(6), fill=LINE, outline='', tags=('chrome',))
-            done = right - bar_w + int(bar_w * min(1.0, self.task_done / max(1, self.task_total)))
-            c.create_rectangle(right - bar_w, bar_y, done, bar_y + px(6), fill=CYAN, outline='', tags=('chrome',))
-        self._text(right, h - px(40), _('↑ ↓ choose   ·   Enter / A confirm   ·   Esc quit'), (UI, 8), FAINT, anchor='e')
+        primary = [k for k in menu if k in self.PRIMARY]
+        rest = [k for k in menu if k not in self.PRIMARY]
+        # The menu card: as tall as it needs, its rows shrinking a little on a short window.
+        card_w = px(340)
+        button_h = px(56)
+        room = h - margin - px(230) - (button_h + px(16) if primary else 0) - px(36)
+        row_h = max(px(34), min(px(44), room // max(1, len(rest))))
+        menu_h = px(18) + (button_h + px(12) if primary else 0) + row_h * len(rest) + px(14)
+        menu_box = (margin, h - margin - menu_h, margin + card_w, h - margin)
+        # The status card: one line per state, and the task's progress bar when one runs.
+        lines = [(self._run_state(), self.status_bad, self._run_colour()), (self._pad_text(), False, self._pad_colour()),
+                 (self._describe(), False, None)]
+        status_w = min(px(400), max(px(300), w - card_w - 3 * margin))
+        status_h = px(52) + px(30) * (len(lines) - 1) + (px(22) if self.task is not None else 0)
+        status_box = (w - margin - status_w, h - margin - status_h, w - margin, h - margin)
+        # The update notice.
+        update_box = None
+        if self.updating or self.update_found:
+            update_box = (w - margin - px(360), px(96), w - margin, px(96) + (px(76) if self.updating else px(108)))
+        panels = [menu_box, status_box] + ([update_box] if update_box else [])
         if self.log_shown:
-            x1, y1 = int(w * 0.46), px(150)
-            c.coords(self.log_item, x1, y1)
-            c.itemconfigure(self.log_item, state='normal', width=w - px(64) - x1, height=max(px(120), h - px(300) - y1))
+            log_box = (menu_box[2] + px(32), px(150) if not update_box else update_box[3] + px(20),
+                       w - margin, status_box[1] - px(20))
+        if self.backdrop.available():
+            c.create_image(0, 0, image=self.backdrop.home(w, h, panels, radius), anchor='nw',
+                           tags=('chrome', 'backdrop'))
+        else:
+            for box in panels:
+                _round_rect(c, *box, radius, fill=PANEL, outline='', tags=('chrome',))
+        for box in panels:
+            _round_rect(c, *box, radius, fill='', outline=LINE, width=px(1), tags=('chrome',))
+
+        # The title, the subtitle with the version, and the follow link.
+        left = margin + px(8)
+        self._brand(left, px(48), 0.9)
+        version = b3_update.installed_version(self.root)
+        self._text(left, px(150), ('v' + version.lstrip('v') + '   ·   ' if version else '')
+                   + _('Native build of the Switch game · bring your own game files'), (UI, 10), MUTED)
+        self._link(w - margin, px(60), _('Follow the author on X: @aoxzh') + '  ↗', b3_update.AUTHOR_URL, CYAN,
+                   'follow')
+
+        if update_box:
+            ux1, uy1, ux2, _uy2 = update_box
+            c.create_rectangle(ux1 + px(18), uy1 + px(18), ux1 + px(21), uy1 + px(44), fill=CYAN, outline='',
+                               tags=('chrome',))
+            if self.updating:
+                self._text(ux1 + px(34), uy1 + px(31), self.updating, (UI, 11, 'bold'), CYAN)
+                self._text(ux1 + px(34), uy1 + px(54), _('Your settings, saves, game data and mods stay.'), (UI, 9),
+                           MUTED)
+            else:
+                self._text(ux1 + px(34), uy1 + px(31), _('Update available: {tag}').format(
+                    tag=self.update_found['tag']), (UI, 12, 'bold'), CYAN)
+                self._text(ux1 + px(34), uy1 + px(54), _('Your settings, saves, game data and mods stay.'), (UI, 9),
+                           MUTED)
+                notes = self._link_left(ux1 + px(34), uy1 + px(84), _("What's new") + '  ↗',
+                                        self.update_found['url'], MUTED, 'notes', size=10)
+                self._link(ux2 - px(20), uy1 + px(84), _('Update now') + '  →', self.start_update, GOLD, 'update',
+                           size=11)
+                del notes
+
+        # The menu.
+        labels = self._menu_labels()
+        x1, y = menu_box[0] + px(16), menu_box[1] + px(18)
+        x2 = menu_box[2] - px(16)
+        for i, key in enumerate(menu):
+            selected = i == self.menu_index
+            tag = f'menu{i}'
+            if key in self.PRIMARY:
+                _round_rect(c, x1, y, x2, y + button_h, px(12), fill=GOLD if self.proc is None else CYAN,
+                            outline=TEXT if selected else '', width=px(2) if selected else 0, tags=('chrome', tag))
+                glyph = '■' if key == 'play' and self.proc is not None else '▶'
+                self._text((x1 + x2) // 2, y + button_h // 2, glyph + '   ' + labels[key], (UI, 14, 'bold'), BG,
+                           anchor='center', tags=(tag,))
+                y += button_h + px(12)
+            else:
+                if selected:
+                    _round_rect(c, x1, y + px(2), x2, y + row_h - px(2), px(10), fill=HOVER, outline='',
+                                tags=('chrome', tag))
+                    c.create_rectangle(x1, y + px(10), x1 + px(3), y + row_h - px(10), fill=CYAN, outline='',
+                                       tags=('chrome', tag))
+                else:  # an invisible target, so the whole row takes the pointer
+                    c.create_rectangle(x1, y, x2, y + row_h, fill='', outline='', tags=('chrome', tag))
+                colour = (GOLD if key == 'update' else TEXT) if selected else (GOLD if key == 'update' else MUTED)
+                self._text(x1 + px(18), y + row_h // 2, labels[key], (UI, 12, 'bold' if selected else 'normal'),
+                           colour, tags=(tag,))
+                y += row_h
+            c.tag_bind(tag, '<Enter>', lambda _e, i=i: self._menu_select(i))
+            c.tag_bind(tag, '<Button-1>', lambda _e, i=i: (self._menu_select(i), self._menu_activate()))
+            c.tag_bind(tag, '<Enter>', lambda _e: c.configure(cursor='hand2'), add='+')
+            c.tag_bind(tag, '<Leave>', lambda _e: c.configure(cursor=''))
+
+        # The state of things: can it start, is a controller there, what will it run at.
+        sx1, sy = status_box[0] + px(22), status_box[1] + px(26)
+        width = status_box[2] - status_box[0] - px(52)
+        for text, bad, dot in lines:
+            if dot:
+                c.create_oval(sx1, sy - px(4), sx1 + px(8), sy + px(4), fill=dot, outline='', tags=('chrome',))
+            self._text(sx1 + px(20), sy, text, (UI, 10), RED if bad else (TEXT if dot else MUTED), width=width)
+            sy += px(30)
+        if self.task is not None:  # the setup or update's progress
+            bar_x1, bar_x2, bar_y = sx1, status_box[2] - px(22), sy - px(6)
+            c.create_rectangle(bar_x1, bar_y, bar_x2, bar_y + px(6), fill=LINE, outline='', tags=('chrome',))
+            done = bar_x1 + int((bar_x2 - bar_x1) * min(1.0, self.task_done / max(1, self.task_total)))
+            c.create_rectangle(bar_x1, bar_y, done, bar_y + px(6), fill=CYAN, outline='', tags=('chrome',))
+        self._text(w - margin, h - px(24), _('↑ ↓ choose   ·   Enter / A confirm   ·   Esc quit'), (UI, 8), FAINT,
+                   anchor='e')
+        if self.log_shown:
+            c.coords(self.log_item, log_box[0], log_box[1])
+            c.itemconfigure(self.log_item, state='normal', width=log_box[2] - log_box[0],
+                            height=max(px(120), log_box[3] - log_box[1]))
+
+    def _link_left(self, x, y, text, url, colour, tag, size=10):
+        """_link, left-aligned at x."""
+        c = self.canvas
+        item = self._text(x, y, text, (UI, size, 'bold'), colour, tags=(tag,))
+        c.tag_bind(tag, '<Button-1>', lambda _e: url() if callable(url) else self._open_url(url))
+        c.tag_bind(tag, '<Enter>', lambda _e: c.configure(cursor='hand2'))
+        c.tag_bind(tag, '<Leave>', lambda _e: c.configure(cursor=''))
+        return item
 
     def _layout_settings(self, w, h):
         c = self.canvas

@@ -7,6 +7,22 @@ final class TrText {
 
     static final String[][] ROWS = {
         // ---- home screen
+        {"Show frame rate", "显示帧率", "フレームレートを表示"},
+        {"The frame rate in the top left corner of the game", "在游戏画面左上角显示帧率", "ゲーム画面の左上にフレームレートを表示"},
+        {"Saver", "省电", "省電力"},
+        {"Balanced", "平衡", "バランス"},
+        {"Ready", "就绪", "準備完了"},
+        {"Not set up", "未安装", "未セットアップ"},
+        {"Setting up", "正在安装", "セットアップ中"},
+        {"Incomplete", "不完整", "不完全"},
+        {"Not found", "未找到", "見つかりません"},
+        {"Empty", "空", "空"},
+        {"Set up the game", "安装游戏", "ゲームをセットアップ"},
+        {"Game folder not found", "找不到游戏文件夹", "ゲームフォルダーが見つかりません"},
+        {"Game data incomplete", "游戏数据不完整", "ゲームデータが不完全です"},
+        {"The game data is incomplete: the notice on the left says what is missing.", "游戏数据不完整：左侧的提示列出了缺少的内容。", "ゲームデータが不完全です。左の案内に足りないものが書かれています。"},
+        {"Phone vibration", "手机振动", "本体の振動"},
+        {"With no controller in use, the phone itself vibrates when the game rumbles", "没有使用手柄时，游戏震动由手机本身振动", "コントローラーを使っていないとき、ゲームの振動で本体が振動します"},
         {"Static recompilation · Android", "静态重编译 · Android", "静的リコンパイル · Android"},
         {"Game data", "游戏数据", "ゲームデータ"},
         {"Shader cache", "着色器缓存", "シェーダーキャッシュ"},

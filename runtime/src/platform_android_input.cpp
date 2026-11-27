@@ -268,6 +268,11 @@ bool headless() {  // NX_HEADLESS (platform.h)
 
 // Nothing held: the in-game menu's window takes the input while it is open, so a button, stick or finger down when it
 // opened would never see its release.
+bool controller_in_use() {
+    std::lock_guard lk(g_in);
+    return g_gamepad;
+}
+
 void release_input() {
     std::lock_guard lk(g_in);
     g_pad_buttons = PadState{};

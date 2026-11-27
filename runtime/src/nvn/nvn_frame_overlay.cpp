@@ -1,4 +1,4 @@
-// The frame rate on screen (NX_FPS_OVERLAY=1, on by default on Android): a seven-segment readout in the top left
+// The frame rate on screen (NX_FPS_OVERLAY=1; off by default, the launchers' Show frame rate): a seven-segment readout in the top left
 // corner of the picture, drawn by the present pass (nvn_present.cpp) from the rate this file measures.
 //
 // Why here and not the game's own overlay: the game's HUD is the guest's (and it has none for a host frame rate), so
@@ -20,12 +20,7 @@ constexpr uint64_t kWindowNs = 1'000'000'000ull;
 bool overlay_on() {
     static const bool on = [] {
         const char* e = std::getenv("NX_FPS_OVERLAY");
-        if (e) return e[0] == '1';
-#if defined(__ANDROID__)
-        return true;  // phones have no other way to see it; nothing else draws over the picture
-#else
-        return false;
-#endif
+        return e && e[0] == '1';
     }();
     return on;
 }

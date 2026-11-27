@@ -76,6 +76,75 @@ final class Ui {
         return b;
     }
 
+    // Children laid out left to right, wrapping onto a new line when the width runs out (the home screen's status
+    // chips), with `gap` between them both ways.
+    static final class Flow extends android.view.ViewGroup {
+        private final int gap;
+
+        Flow(Context c, float gapDp) {
+            super(c);
+            gap = dp(c, gapDp);
+        }
+
+        @Override protected void onMeasure(int ws, int hs) {
+            final int max = MeasureSpec.getSize(ws) - getPaddingLeft() - getPaddingRight();
+            int x = 0, y = 0, line = 0;
+            for (int i = 0; i < getChildCount(); i++) {
+                View v = getChildAt(i);
+                if (v.getVisibility() == GONE) continue;
+                v.measure(MeasureSpec.makeMeasureSpec(max, MeasureSpec.AT_MOST), MeasureSpec.UNSPECIFIED);
+                if (x > 0 && x + v.getMeasuredWidth() > max) { x = 0; y += line + gap; line = 0; }
+                x += v.getMeasuredWidth() + gap;
+                line = Math.max(line, v.getMeasuredHeight());
+            }
+            setMeasuredDimension(MeasureSpec.getSize(ws), y + line + getPaddingTop() + getPaddingBottom());
+        }
+
+        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            final int max = r - l - getPaddingLeft() - getPaddingRight();
+            int x = 0, y = 0, line = 0;
+            for (int i = 0; i < getChildCount(); i++) {
+                View v = getChildAt(i);
+                if (v.getVisibility() == GONE) continue;
+                if (x > 0 && x + v.getMeasuredWidth() > max) { x = 0; y += line + gap; line = 0; }
+                v.layout(getPaddingLeft() + x, getPaddingTop() + y, getPaddingLeft() + x + v.getMeasuredWidth(),
+                        getPaddingTop() + y + v.getMeasuredHeight());
+                x += v.getMeasuredWidth() + gap;
+                line = Math.max(line, v.getMeasuredHeight());
+            }
+        }
+    }
+
+    // A status chip: a coloured dot and a short text on a rounded glass pill; tap (or A) for the details.
+    static final class Chip extends LinearLayout {
+        final View dot;
+        final TextView text;
+
+        Chip(Context c) {
+            super(c);
+            setOrientation(HORIZONTAL);
+            setGravity(Gravity.CENTER_VERTICAL);
+            setMinimumHeight(dp(c, 34));
+            setPadding(dp(c, 10), dp(c, 4), dp(c, 12), dp(c, 4));
+            setBackground(states(c, alpha(PANEL, 0xb8), alpha(LINE, 0xd0), alpha(PANEL, 0xb8), LINE, 20));
+            focusable(this);
+            dot = new View(c);
+            dot.setBackground(rect(c, FAINT, 0, 0, 4));
+            LayoutParams dl = new LayoutParams(dp(c, 8), dp(c, 8));
+            dl.rightMargin = dp(c, 8);
+            addView(dot, dl);
+            text = text(c, "…", 12, TEXT, false);
+            text.setMaxLines(2);
+            addView(text);
+        }
+
+        void show(CharSequence s, int dotColor, int textColor) {
+            text.setText(s);
+            text.setTextColor(textColor);
+            dot.setBackground(rect(getContext(), dotColor, 0, 0, 4));
+        }
+    }
+
     // A settings row: a label (and a hint under it) on the left, the value on the right. A choice row steps its value
     // with a tap, or with left/right on a D-pad or stick, so the whole panel works from a controller.
     static final class Row extends LinearLayout {

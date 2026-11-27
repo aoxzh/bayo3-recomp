@@ -74,9 +74,9 @@ public final class LauncherActivity extends Activity {
     private static final int[] OPACITY = {40, 55, 70, 85, 100};
     private static final int[] SIZE = {70, 85, 100, 115, 130};
     private static final String[][] PROFILES = {
-            {Config.SAVER, Tr.t("Battery saver"), Tr.t("30 fps · coolest, longest on battery")},
-            {Config.BALANCED, Tr.t("Balanced 40"), Tr.t("40 fps · steady on recent chips")},
-            {Config.UNLOCKED, Tr.t("Unlocked"), Tr.t("Up to 60 fps · falls as the phone warms")}};
+            {Config.SAVER, Tr.t("Battery saver"), Tr.t("30 fps · coolest, longest on battery"), Tr.t("Saver")},
+            {Config.BALANCED, Tr.t("Balanced 40"), Tr.t("40 fps · steady on recent chips"), Tr.t("Balanced")},
+            {Config.UNLOCKED, Tr.t("Unlocked"), Tr.t("Up to 60 fps · falls as the phone warms"), Tr.t("Unlocked")}};
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private Config cfg;
@@ -93,17 +93,25 @@ public final class LauncherActivity extends Activity {
     private FrameLayout panelLayer;
     private View panel;
     private TextView start, hints;
+    private static final String[] FPS = {"30", "40", "60"};
     private final LinearLayout[] profileRows = new LinearLayout[PROFILES.length];
-    private TextView dataValue, cacheValue, padValue, chipValue, heatValue, note;
-    private LinearLayout gameModeCard;
-    private LinearLayout updateCard;  // a newer release on GitHub (Updates.check), hidden until one is found
+    private final TextView[] profileFps = new TextView[PROFILES.length];
+    private TextView profileDesc;
+    // The status chips; tapping one shows its details (the *Detail strings).
+    private Ui.Chip dataChip, cacheChip, padChip, chipChip, heatChip;
+    private String dataDetail = "", cacheDetail = "", padDetail = "", chipDetail = "", heatDetail = "";
+    private TextView note;
+    // The notices, one shown at a time in this order: the game data (set up / missing), an update, the game mode.
+    private Banner dataBanner, updateBanner, gameModeBanner;
     private TextView updateTitle;
+    private int panelWidth;
     private String updateUrl = Updates.RELEASES;
     private Updates.Release update;   // the newer release found at start
     private TextView updateHow, updateNow, updateNotes;
     private boolean downloading;
-    private View dataDot, cacheDot, padDot, heatDot;
-    private Ui.Row langRow, resRow, swapRow, menuRow, updatesRow, muteRow, touchRow, opacityRow, sizeRow, folderRow;
+    private Ui.Row fpsRow;
+    private Ui.Row langRow, resRow, swapRow, menuRow, updatesRow, muteRow, touchRow, opacityRow, sizeRow, vibRow,
+            folderRow;
     private LinearLayout advanced;
     private TextView advancedRow, folderText;
     private EditText advancedText;
@@ -249,12 +257,16 @@ public final class LauncherActivity extends Activity {
         // and again along the bottom where Start sits.
         View scrim = new View(this);
         scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[] {Ui.alpha(Ui.BG, 0xf2), Ui.alpha(Ui.BG, 0xc0), Ui.alpha(Ui.BG, 0x50)}));
+                new int[] {Ui.alpha(Ui.BG, 0xf0), Ui.alpha(Ui.BG, 0xb0), Ui.alpha(Ui.BG, 0x38)}));
         root.addView(scrim, match());
         View bottom = new View(this);
         bottom.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
-                new int[] {Ui.alpha(Ui.BG, 0xd0), Ui.alpha(Ui.BG, 0x00)}));
-        root.addView(bottom, new FrameLayout.LayoutParams(-1, dp(180), Gravity.BOTTOM));
+                new int[] {Ui.alpha(Ui.BG, 0xe0), Ui.alpha(Ui.BG, 0x00)}));
+        root.addView(bottom, new FrameLayout.LayoutParams(-1, dp(220), Gravity.BOTTOM));
+        View top = new View(this);
+        top.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[] {Ui.alpha(Ui.BG, 0xa0), Ui.alpha(Ui.BG, 0x00)}));
+        root.addView(top, new FrameLayout.LayoutParams(-1, dp(120), Gravity.TOP));
 
         FrameLayout safe = new FrameLayout(this);  // the display cutout and bars kept clear
         root.addView(safe, match());
@@ -281,162 +293,225 @@ public final class LauncherActivity extends Activity {
         dim.setOnClickListener(v -> closePanel());
         panelLayer.addView(dim, match());
         panel = buildPanel();
-        panelLayer.addView(panel, new FrameLayout.LayoutParams(dp(460), -1, Gravity.END));
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        panelWidth = Math.min(dp(460), Math.max(dp(340), Math.round(Math.max(dm.widthPixels, dm.heightPixels) * 0.6f)));
+        panelLayer.addView(panel, new FrameLayout.LayoutParams(panelWidth, -1, Gravity.END));
         root.addView(panelLayer, match());
     }
 
     private static FrameLayout.LayoutParams match() { return new FrameLayout.LayoutParams(-1, -1); }
 
+    // The home screen, landscape: a top bar (title, Follow; Report and Settings), then the status chips and one notice
+    // on the left, and under the right thumb the 30 / 40 / 60 switch and START, pinned to the bottom so they stay on
+    // a short screen (a phone is about 410 dp tall) whatever the left side holds.
     private View buildHome() {
         LinearLayout h = new LinearLayout(this);
-        h.setOrientation(LinearLayout.HORIZONTAL);
+        h.setOrientation(LinearLayout.VERTICAL);
 
-        // Left: the title and the status card.
-        LinearLayout left = new LinearLayout(this);
-        left.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout titleRow = new LinearLayout(this);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
         ImageView icon = new ImageView(this);  // the app icon (games/bayonetta3/res)
         icon.setImageResource(getApplicationInfo().icon);
-        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(44), dp(44));
         ilp.rightMargin = dp(12);
-        titleRow.addView(icon, ilp);
-        TextView title = Ui.text(this, "BAYONETTA 3", 34, Ui.TEXT, false);
+        bar.addView(icon, ilp);
+        LinearLayout names = new LinearLayout(this);
+        names.setOrientation(LinearLayout.VERTICAL);
+        TextView title = Ui.text(this, "BAYONETTA 3", 26, Ui.TEXT, false);
         title.setTypeface(Typeface.create("serif", Typeface.BOLD));
-        title.setLetterSpacing(0.08f);
-        title.setShadowLayer(dp(10), 0, 0, Ui.alpha(Ui.CYAN, 0x60));
-        titleRow.addView(title);
-        left.addView(titleRow);
+        title.setLetterSpacing(0.10f);
+        title.setShadowLayer(dp(10), 0, 0, Ui.alpha(Ui.CYAN, 0x50));
+        names.addView(title);
         LinearLayout subRow = new LinearLayout(this);
         subRow.setGravity(Gravity.CENTER_VERTICAL);
-        subRow.setPadding(0, dp(2), 0, dp(10));
-        TextView sub = Ui.text(this, Tr.t("Static recompilation · Android"), 13, Ui.MUTED, false);
-        sub.setLetterSpacing(0.04f);
+        TextView sub = Ui.text(this, Tr.t("Static recompilation · Android") + "  ·  " + Report.appVersion(this), 12,
+                Ui.MUTED, false);
+        sub.setLetterSpacing(0.03f);
         subRow.addView(sub);
-        TextView follow = Ui.text(this, "   ·   " + Tr.t("Follow @aoxzh") + " ↗", 13, Ui.CYAN, true);
-        follow.setPadding(0, dp(8), dp(8), dp(8));  // a finger-sized target around the short text
+        TextView follow = Ui.text(this, Tr.t("Follow @aoxzh") + " ↗", 12, Ui.CYAN, true);
+        follow.setPadding(dp(10), dp(6), dp(10), dp(6));  // a finger-sized target around the short text
         follow.setBackground(Ui.states(this, 0, 0, 0, 0, 10));
         Ui.focusable(follow);
         follow.setOnClickListener(v -> Updates.open(this, Updates.AUTHOR));
         subRow.addView(follow);
-        left.addView(subRow);
+        names.addView(subRow);
+        bar.addView(names, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView report = Ui.button(this, Tr.t("Report a bug"), false);
+        report.setOnClickListener(v -> reportIssue());
+        bar.addView(report);
+        bar.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
+        TextView settings = Ui.button(this, "⚙  " + Tr.t("Settings"), false);
+        settings.setOnClickListener(v -> openPanel());
+        bar.addView(settings);
+        h.addView(bar, new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(16), dp(10), dp(16), dp(10));
-        card.setBackground(Ui.rect(this, Ui.alpha(Ui.PANEL, 0xc8), Ui.alpha(Ui.LINE, 0xc0), 1, 16));
-        dataDot = new View(this);
-        dataValue = statusRow(card, Tr.t("Game data"), dataDot);
-        cacheDot = new View(this);
-        cacheValue = statusRow(card, Tr.t("Shader cache"), cacheDot);
-        padDot = new View(this);
-        padValue = statusRow(card, Tr.t("Controller"), padDot);
-        chipValue = statusRow(card, Tr.t("Chip"), null);
-        heatDot = new View(this);
-        heatValue = statusRow(card, Tr.t("Temperature"), heatDot);
-        left.addView(card, new LinearLayout.LayoutParams(-1, -2));
-        left.addView(buildGameModeCard(), gameModeParams());
-        left.addView(buildUpdateCard(), gameModeParams());
-        View fill = new View(this);
-        left.addView(fill, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, 0, 1);
+        blp.topMargin = dp(10);
+        h.addView(body, blp);
+
+        // Left: the chips, then the notice; it scrolls when a notice is long.
+        LinearLayout left = new LinearLayout(this);
+        left.setOrientation(LinearLayout.VERTICAL);
+        Ui.Flow chips = new Ui.Flow(this, 6);
+        dataChip = chip(chips, () -> dataDetail, Tr.t("Game data"));
+        cacheChip = chip(chips, () -> cacheDetail, Tr.t("Shader cache"));
+        padChip = chip(chips, () -> padDetail, Tr.t("Controller"));
+        chipChip = chip(chips, () -> chipDetail, Tr.t("Chip"));
+        chipChip.setOnClickListener(v -> {
+            if (spec != null && !spec.ok()) specDialog(spec, null);
+            else details(Tr.t("Chip"), chipDetail);
+        });
+        heatChip = chip(chips, () -> heatDetail, Tr.t("Temperature"));
+        left.addView(chips, new LinearLayout.LayoutParams(-1, -2));
+        dataBanner = new Banner(Ui.GOLD);
+        left.addView(dataBanner.view, noticeParams());
+        left.addView(buildUpdateCard(), noticeParams());
+        left.addView(buildGameModeCard(), noticeParams());
+        left.addView(new View(this), new LinearLayout.LayoutParams(-1, 0, 1));
         hints = Ui.text(this, Tr.t("Ⓐ Select    Ⓑ Back    ☰ Start    L1 / R1  Profile    Ⓨ Settings"), 12,
                 Ui.MUTED, false);
+        hints.setPadding(dp(4), dp(12), 0, 0);
         hints.setVisibility(View.GONE);
         left.addView(hints);
         ScrollView ls = new ScrollView(this);
         ls.setVerticalScrollBarEnabled(false);
         ls.setFillViewport(true);
         ls.addView(left);
-        h.addView(ls, new LinearLayout.LayoutParams(0, -1, 1));
+        body.addView(ls, new LinearLayout.LayoutParams(0, -1, 1));
+        body.addView(new View(this), new LinearLayout.LayoutParams(dp(24), 1));
 
-        View gap = new View(this);
-        h.addView(gap, new LinearLayout.LayoutParams(dp(28), 1));
-
-        // Right: settings and report at the top, the profiles and Start under the right thumb.
+        // Right: the performance switch, its line, START and the in-game menu hint, at the bottom.
         LinearLayout right = new LinearLayout(this);
         right.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout top = new LinearLayout(this);
-        top.setGravity(Gravity.END);
-        TextView report = Ui.button(this, Tr.t("Report a bug"), false);
-        report.setOnClickListener(v -> reportIssue());
-        top.addView(report);
-        View sp = new View(this);
-        top.addView(sp, new LinearLayout.LayoutParams(dp(10), 1));
-        TextView settings = Ui.button(this, Tr.t("Settings"), false);
-        settings.setOnClickListener(v -> openPanel());
-        top.addView(settings);
-        right.addView(top, new LinearLayout.LayoutParams(-1, -2));
-        // The profiles scroll in what height is left, START and its hint stay at the bottom: on a short screen
-        // (a phone about 410 dp tall, a large font) a fixed column pushed START off the screen.
-        ScrollView midScroll = new ScrollView(this);
-        midScroll.setVerticalScrollBarEnabled(false);
-        midScroll.setFillViewport(true);
-        LinearLayout mid = new LinearLayout(this);
-        mid.setOrientation(LinearLayout.VERTICAL);
-        mid.setGravity(Gravity.BOTTOM);
-        midScroll.addView(mid, new FrameLayout.LayoutParams(-1, -2));
-        right.addView(midScroll, new LinearLayout.LayoutParams(-1, 0, 1));
-
-        TextView perf = Ui.text(this, Tr.t("PERFORMANCE"), 11.5f, Ui.MUTED, true);
-        perf.setLetterSpacing(0.16f);
+        right.setGravity(Gravity.BOTTOM);
+        TextView perf = Ui.text(this, Tr.t("PERFORMANCE"), 11, Ui.MUTED, true);
+        perf.setLetterSpacing(0.18f);
         perf.setPadding(dp(4), 0, 0, dp(8));
-        mid.addView(perf);
+        right.addView(perf);
+        LinearLayout seg = new LinearLayout(this);
+        seg.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < PROFILES.length; i++) {
             final String id = PROFILES[i][0];
             LinearLayout r = new LinearLayout(this);
             r.setOrientation(LinearLayout.VERTICAL);
-            r.setGravity(Gravity.CENTER_VERTICAL);
-            r.setMinimumHeight(dp(52));
-            r.setPadding(dp(16), dp(6), dp(16), dp(6));
+            r.setGravity(Gravity.CENTER);
+            r.setMinimumHeight(dp(64));
+            r.setPadding(dp(6), dp(8), dp(6), dp(8));
             r.setBackground(Ui.states(this, Ui.alpha(Ui.PANEL, 0xc8), Ui.alpha(Ui.LINE, 0xc0),
-                    Ui.alpha(Ui.GOLD_DIM, 0x90), Ui.GOLD, 14));
+                    Ui.alpha(Ui.GOLD_DIM, 0xa8), Ui.GOLD, 14));
             Ui.focusable(r);
-            r.addView(Ui.text(this, PROFILES[i][1], 15, Ui.TEXT, true));
-            TextView d = Ui.text(this, PROFILES[i][2], 12, Ui.MUTED, false);
-            d.setPadding(0, dp(3), 0, 0);
-            r.addView(d);
+            TextView n = Ui.text(this, FPS[i], 22, Ui.TEXT, true);
+            n.setGravity(Gravity.CENTER);
+            r.addView(n);
+            TextView l = Ui.text(this, PROFILES[i][3], 11.5f, Ui.MUTED, false);
+            l.setGravity(Gravity.CENTER);
+            l.setSingleLine(true);
+            l.setPadding(0, dp(4), 0, 0);
+            r.addView(l);
             r.setOnClickListener(v -> setProfile(id));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-            lp.bottomMargin = dp(8);
-            mid.addView(r, lp);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
+            if (i > 0) lp.leftMargin = dp(8);
+            seg.addView(r, lp);
             profileRows[i] = r;
+            profileFps[i] = n;
         }
+        right.addView(seg, new LinearLayout.LayoutParams(-1, -2));
+        profileDesc = Ui.text(this, "", 12, Ui.MUTED, false);
+        profileDesc.setGravity(Gravity.CENTER);
+        profileDesc.setPadding(0, dp(8), 0, dp(12));
+        right.addView(profileDesc, new LinearLayout.LayoutParams(-1, -2));
         start = Ui.button(this, Tr.t("▶   START"), true);
         start.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
         start.setLetterSpacing(0.14f);
         start.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
-        start.setBackground(Ui.states(this, Ui.GOLD, Ui.GOLD, Ui.GOLD, Ui.GOLD, 20));
-        start.setElevation(dp(6));
+        start.setBackground(Ui.states(this, Ui.GOLD, Ui.GOLD, Ui.GOLD, Ui.GOLD, 18));
+        start.setElevation(dp(8));
         start.setOnClickListener(v -> startGame());
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, dp(68));
-        slp.topMargin = dp(4);
-        right.addView(start, slp);
+        right.addView(start, new LinearLayout.LayoutParams(-1, dp(64)));
         TextView menuHint = Ui.text(this, Tr.t("In the game: press Back 3 times (or Guide on a controller) for the menu"),
-                11.5f, Ui.MUTED, false);
+                11, Ui.FAINT, false);
         menuHint.setGravity(Gravity.CENTER);
         menuHint.setPadding(0, dp(8), 0, 0);
         right.addView(menuHint, new LinearLayout.LayoutParams(-1, -2));
-        h.addView(right, new LinearLayout.LayoutParams(dp(300), -1));
+        body.addView(right, new LinearLayout.LayoutParams(dp(320), -1));
         return h;
     }
 
-    private TextView statusRow(LinearLayout card, String label, View dot) {
-        LinearLayout r = new LinearLayout(this);
-        r.setGravity(Gravity.TOP);
-        r.setPadding(0, dp(5), 0, dp(5));
-        FrameLayout dotBox = new FrameLayout(this);
-        if (dot != null) {
-            dot.setBackground(Ui.rect(this, Ui.FAINT, 0, 0, 4));
-            dotBox.addView(dot, new FrameLayout.LayoutParams(dp(8), dp(8), Gravity.CENTER));
+    private interface Text { String get(); }
+
+    private Ui.Chip chip(Ui.Flow flow, Text detail, String label) {
+        Ui.Chip c = new Ui.Chip(this);
+        c.setOnClickListener(v -> details(label, detail.get()));
+        flow.addView(c);
+        return c;
+    }
+
+    private void details(String title, String text) {
+        new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+                .setTitle(title).setMessage(text).setPositiveButton(Tr.t("Close"), null).show();
+    }
+
+    // A notice: a coloured stripe, a title, a text and its buttons on the right, on a glass card. Only the first
+    // wanted one (dataBanner, updateBanner, gameModeBanner) shows; the others wait their turn.
+    private final class Banner {
+        final LinearLayout view, buttons;
+        final TextView title, body;
+        boolean wanted;
+
+        Banner(int accent) {
+            view = new LinearLayout(LauncherActivity.this);
+            view.setOrientation(LinearLayout.HORIZONTAL);
+            view.setBackground(Ui.rect(LauncherActivity.this, Ui.alpha(Ui.PANEL, 0xdc), Ui.alpha(accent, 0x70), 1, 14));
+            view.setPadding(0, 0, dp(14), 0);
+            View stripe = new View(LauncherActivity.this);
+            stripe.setBackground(Ui.rect(LauncherActivity.this, accent, 0, 0, 2));
+            LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(dp(4), -1);
+            slp.setMargins(dp(8), dp(12), dp(12), dp(12));
+            view.addView(stripe, slp);
+            LinearLayout col = new LinearLayout(LauncherActivity.this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setPadding(0, dp(12), 0, dp(10));
+            title = Ui.text(LauncherActivity.this, "", 14.5f, accent, true);
+            col.addView(title);
+            body = Ui.text(LauncherActivity.this, "", 12, Ui.TEXT, false);
+            body.setLineSpacing(dp(2), 1);
+            body.setPadding(0, dp(6), 0, 0);
+            col.addView(body);
+            buttons = new LinearLayout(LauncherActivity.this);
+            buttons.setGravity(Gravity.END);
+            buttons.setPadding(0, dp(8), 0, 0);
+            buttons.setVisibility(View.GONE);
+            col.addView(buttons, new LinearLayout.LayoutParams(-1, -2));
+            view.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
+            view.setVisibility(View.GONE);
         }
-        r.addView(dotBox, new LinearLayout.LayoutParams(dp(18), dp(16)));
-        TextView l = Ui.text(this, label, 13, Ui.MUTED, false);
-        r.addView(l, new LinearLayout.LayoutParams(dp(104), -2));
-        TextView v = Ui.text(this, "…", 14, Ui.TEXT, false);
-        v.setLineSpacing(dp(3), 1);
-        r.addView(v, new LinearLayout.LayoutParams(0, -2, 1));
-        card.addView(r);
-        return v;
+
+        TextView button(String label, boolean primary, View.OnClickListener l) {
+            TextView b = Ui.button(LauncherActivity.this, label, primary);
+            b.setMinHeight(dp(44));
+            b.setOnClickListener(l);
+            if (buttons.getChildCount() > 0) buttons.addView(new View(LauncherActivity.this), new LinearLayout.LayoutParams(dp(8), 1));
+            buttons.addView(b);
+            buttons.setVisibility(View.VISIBLE);
+            return b;
+        }
+    }
+
+    private void showNotices() {
+        if (dataBanner == null || updateBanner == null || gameModeBanner == null) return;
+        boolean shown = false;
+        for (Banner b : new Banner[] {dataBanner, updateBanner, gameModeBanner}) {
+            b.view.setVisibility(b.wanted && !shown ? View.VISIBLE : View.GONE);
+            shown |= b.wanted;
+        }
+    }
+
+    private LinearLayout.LayoutParams noticeParams() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(10);
+        return lp;
     }
 
     private View buildFirstRun() {
@@ -474,7 +549,7 @@ public final class LauncherActivity extends Activity {
     private View buildPanel() {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
-        p.setBackground(new ColorDrawable(Ui.alpha(Ui.PANEL, 0xfa)));
+        p.setBackground(new ColorDrawable(Ui.PANEL));
         p.setClickable(true);
         p.setPadding(dp(20), dp(16), dp(20), dp(12));
         p.setOnApplyWindowInsetsListener((v, insets) -> {
@@ -513,6 +588,8 @@ public final class LauncherActivity extends Activity {
             cfg.set("NX_HANDHELD", RESOLUTION[i][0].isEmpty() ? null : RESOLUTION[i][0]);
             saveAndShow();
         };
+        fpsRow = row(list, Tr.t("Show frame rate"), Tr.t("The frame rate in the top left corner of the game"));
+        fpsRow.stepper = d -> { cfg.set("NX_FPS_OVERLAY", on("NX_FPS_OVERLAY") ? null : "1"); saveAndShow(); };
         swapRow = row(list, Tr.t("Xbox button layout"), Tr.t("On: the button marked A is the game's A. Off: by position, as on Switch"));
         swapRow.stepper = d -> { cfg.set("NX_PAD_SWAP", on("NX_PAD_SWAP") ? null : "1"); saveAndShow(); };
         menuRow = row(list, Tr.t("Menu button"), Tr.t("Opens the in-game menu. Guide and Back x3 always work too"));
@@ -535,6 +612,9 @@ public final class LauncherActivity extends Activity {
         opacityRow.stepper = d -> { cfg.set("NX_TOUCH_OPACITY", "" + stepInt(OPACITY, "NX_TOUCH_OPACITY", 85, d)); saveAndShow(); };
         sizeRow = row(list, Tr.t("Size"), null);
         sizeRow.stepper = d -> { cfg.set("NX_TOUCH_SIZE", "" + stepInt(SIZE, "NX_TOUCH_SIZE", 100, d)); saveAndShow(); };
+        vibRow = row(list, Tr.t("Phone vibration"), Tr.t("With no controller in use, the phone itself vibrates when the "
+                + "game rumbles"));
+        vibRow.stepper = d -> { cfg.set("NX_PHONE_RUMBLE", phoneRumble() ? "0" : null); saveAndShow(); };
 
         section(list, Tr.t("STORAGE"));
         folderRow = row(list, Tr.t("Game folder"), Tr.t("Where the game data, your saves and the shader cache are"));
@@ -614,44 +694,52 @@ public final class LauncherActivity extends Activity {
 
     // ---- showing the state ----------------------------------------------------------------------------------------
 
-    private void dot(View d, int color) { if (d != null) d.setBackground(Ui.rect(this, color, 0, 0, 4)); }
-
     private void showData() {
         StringBuilder b = new StringBuilder();
         if (needsSetup()) {  // an APK that builds the game here (Setup.java)
-            dataValue.setText(Setup.current() != null && Setup.current().running
-                    ? Tr.f("Setting up · %s (tap SET UP to see it)", Setup.current().phase)
+            boolean running = Setup.current() != null && Setup.current().running;
+            dataDetail = running ? Tr.f("Setting up · %s (tap SET UP to see it)", Setup.current().phase)
                     : Tr.t("Not set up yet · SET UP builds the game from your dump here (30-60 min), or send it from a "
-                    + "computer over USB in minutes (desktop launcher: Send to my phone)"));
-            dataValue.setTextColor(Ui.GOLD);
-            dot(dataDot, Ui.GOLD);
+                    + "computer over USB in minutes (desktop launcher: Send to my phone)");
+            dataChip.show(Tr.t("Game data") + " · " + Tr.t(running ? "Setting up" : "Not set up"), Ui.GOLD, Ui.TEXT);
+            dataBanner.title.setText(Tr.t(running ? "Setting up" : "Set up the game"));
+            dataBanner.body.setText(dataDetail);
+            dataBanner.wanted = true;
             start.setText(Tr.t("SET UP"));
             start.setAlpha(1f);
-            cacheValue.setText(Tr.t("None yet"));
-            dot(cacheDot, Ui.FAINT);
+            cacheDetail = Tr.t("None yet");
+            cacheChip.show(Tr.t("Shader cache") + " · " + Tr.t("Empty"), Ui.FAINT, Ui.MUTED);
+            showNotices();
             return;
         }
         start.setText(Tr.t("▶   START"));
+        String state;
         if (!data.folderExists) {
             b.append(Tr.f("%s not found.\nCreate it and copy the game data into it: analysis/, extract/romfs/ and "
                     + "spirv/.", data.rootLabel()));
+            state = "Not found";
         } else if (data.ready()) {
             b.append(Tr.f("Ready · %s", data.rootLabel()));
+            state = "Ready";
         } else {
             b.append(Tr.f("Missing in %s:", data.rootLabel()));
             for (DataCheck.Item i : data.missing) b.append("\n• ").append(i.path).append(" — ").append(Tr.t(i.why));
+            state = "Incomplete";
         }
-        dataValue.setText(b);
-        dataValue.setTextColor(data.ready() ? Ui.TEXT : Ui.RED);
-        dot(dataDot, data.ready() ? Ui.GREEN : Ui.RED);
+        dataDetail = b.toString();
+        dataChip.show(Tr.t("Game data") + " · " + Tr.t(state), data.ready() ? Ui.GREEN : Ui.RED, Ui.TEXT);
+        dataBanner.wanted = !data.ready();
+        dataBanner.title.setText(Tr.t(state.equals("Not found") ? "Game folder not found" : "Game data incomplete"));
+        dataBanner.body.setText(dataDetail);
         start.setAlpha(data.ready() ? 1f : 0.55f);
         if (data.cacheFiles > 0) {
-            cacheValue.setText(Tr.f("%s · warm, fewer stutters", DataCheck.size(data.cacheBytes)));
-            dot(cacheDot, Ui.GREEN);
+            cacheDetail = Tr.f("%s · warm, fewer stutters", DataCheck.size(data.cacheBytes));
+            cacheChip.show(Tr.t("Shader cache") + " · " + DataCheck.size(data.cacheBytes), Ui.GREEN, Ui.TEXT);
         } else {
-            cacheValue.setText(Tr.t("Empty · first scenes stutter while it fills"));
-            dot(cacheDot, Ui.GOLD);
+            cacheDetail = Tr.t("Empty · first scenes stutter while it fills");
+            cacheChip.show(Tr.t("Shader cache") + " · " + Tr.t("Empty"), Ui.GOLD, Ui.TEXT);
         }
+        showNotices();
     }
 
     private void setProfile(String id) {
@@ -662,8 +750,15 @@ public final class LauncherActivity extends Activity {
 
     private void showProfile() {
         String cur = cfg.profile();
-        for (int i = 0; i < PROFILES.length; i++) profileRows[i].setSelected(PROFILES[i][0].equals(cur));
+        for (int i = 0; i < PROFILES.length; i++) {
+            boolean sel = PROFILES[i][0].equals(cur);
+            profileRows[i].setSelected(sel);
+            profileFps[i].setTextColor(sel ? Ui.GOLD : Ui.TEXT);
+            if (sel) profileDesc.setText(PROFILES[i][1] + "  ·  " + PROFILES[i][2]);
+        }
     }
+
+    private boolean phoneRumble() { return !"0".equals(cfg.get("NX_PHONE_RUMBLE", "")); }
 
     private boolean on(String key) { return cfg.get(key, "").length() > 0 && !cfg.get(key, "").equals("0"); }
 
@@ -688,6 +783,7 @@ public final class LauncherActivity extends Activity {
         String lang = cfg.get("language", "");
         langRow.show(LANGUAGES[index(LANGUAGES, lang)][1], true);
         swapRow.show(Tr.t(on("NX_PAD_SWAP") ? "On" : "Off"), on("NX_PAD_SWAP"));
+        fpsRow.show(Tr.t(on("NX_FPS_OVERLAY") ? "On" : "Off"), on("NX_FPS_OVERLAY"));
         updatesRow.show(Tr.t(Updates.enabled(this) ? "On" : "Off"), Updates.enabled(this));
         String res = cfg.get("NX_HANDHELD", "");
         if (!res.equals("0")) res = "";  // NX_HANDHELD=1 written by hand: handheld, as unset
@@ -700,6 +796,7 @@ public final class LauncherActivity extends Activity {
         boolean touchOn = !touch.equals("0");
         opacityRow.show(cfg.get("NX_TOUCH_OPACITY", "85") + "%", touchOn);
         sizeRow.show(cfg.get("NX_TOUCH_SIZE", "100") + "%", touchOn);
+        vibRow.show(Tr.t(phoneRumble() ? "On" : "Off"), phoneRumble());
         List<Storage.Volume> vols = Storage.volumes(this);
         Storage.Volume here = data.root.equals(DataCheck.ownRoot(this)) ? null : Storage.volumeOf(this, data.root);
         folderRow.show(here != null ? here.name : Tr.t("App folder"), true);
@@ -712,31 +809,31 @@ public final class LauncherActivity extends Activity {
     }
 
     private void showPads() {
-        if (padValue == null) return;
+        if (padChip == null) return;
         List<String> names = Report.pads();
         if (names.isEmpty()) {
             boolean touch = cfg == null || !"0".equals(cfg.get("NX_TOUCH_SHOW", "1"));
-            padValue.setText(Tr.t(touch ? "None · touch controls" : "None · touch controls are off in Settings"));
-            dot(padDot, touch ? Ui.FAINT : Ui.GOLD);
+            padDetail = Tr.t(touch ? "None · touch controls" : "None · touch controls are off in Settings");
+            padChip.show(Tr.t("Touch controls") + (touch ? "" : " · " + Tr.t("Off")), touch ? Ui.CYAN : Ui.GOLD, Ui.TEXT);
         } else {
-            padValue.setText(String.join(", ", names));
-            dot(padDot, Ui.GREEN);
+            padDetail = String.join("\n", names);
+            padChip.show(names.get(0) + (names.size() > 1 ? "  +" + (names.size() - 1) : ""), Ui.GREEN, Ui.TEXT);
         }
         hints.setVisibility(names.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
     private void showChip() {
-        if (chipValue == null) return;
+        if (chipChip == null) return;
         String s = ChipInfo.soc() + (gpu != null ? " · " + gpu : "");
         if (spec != null && !spec.ok()) {
-            chipValue.setText(s + "\n" + Tr.f("Below the minimum: %s", String.join("; ", spec.below)));
-            chipValue.setTextColor(Ui.RED);
+            chipDetail = s + "\n" + Tr.f("Below the minimum: %s", String.join("; ", spec.below));
+            chipChip.show(ChipInfo.soc(), Ui.RED, Ui.RED);
         } else if (spec != null && !spec.weak.isEmpty()) {
-            chipValue.setText(s + "\n" + Tr.f("May struggle: %s", String.join("; ", spec.weak)));
-            chipValue.setTextColor(Ui.GOLD);
+            chipDetail = s + "\n" + Tr.f("May struggle: %s", String.join("; ", spec.weak));
+            chipChip.show(ChipInfo.soc(), Ui.GOLD, Ui.TEXT);
         } else {
-            chipValue.setText(s);
-            chipValue.setTextColor(Ui.TEXT);
+            chipDetail = s;
+            chipChip.show(ChipInfo.soc(), spec != null ? Ui.GREEN : Ui.FAINT, Ui.TEXT);
         }
     }
 
@@ -762,72 +859,44 @@ public final class LauncherActivity extends Activity {
             Tr.t("Shutting down")};
 
     private void showHeat() {
-        if (heatValue == null) return;
+        if (heatChip == null) return;
         int s = Math.max(0, Math.min(HEAT.length - 1, thermal));
-        heatValue.setText(thermal < 0 ? Tr.t("Unknown") : HEAT[s]);
-        dot(heatDot, s <= 1 ? Ui.GREEN : s == 2 ? Ui.GOLD : Ui.RED);
+        heatDetail = thermal < 0 ? Tr.t("Unknown") : HEAT[s];
+        heatChip.show(Tr.t("Temperature") + " · " + heatDetail.split(" · ")[0],
+                thermal < 0 ? Ui.FAINT : s <= 1 ? Ui.GREEN : s == 2 ? Ui.GOLD : Ui.RED, Ui.TEXT);
     }
 
     private String gameMode() { return Report.gameMode(this); }
 
 
-    // The game-mode card: many phones keep an app they do not know as a game at low clocks, and the game then cannot
-    // run at full speed however cool the phone is. Always on the home screen until the player says it is done.
+    // The game-mode notice: many phones keep an app they do not know as a game at low clocks, and the game then cannot
+    // run at full speed however cool the phone is. On the home screen until the player says it is done.
     private View buildGameModeCard() {
-        gameModeCard = new LinearLayout(this);
-        gameModeCard.setOrientation(LinearLayout.VERTICAL);
-        gameModeCard.setPadding(dp(16), dp(12), dp(16), dp(12));
-        gameModeCard.setBackground(Ui.rect(this, Ui.alpha(Ui.GOLD_DIM, 0x70), Ui.GOLD, 2, 16));
-        TextView title = Ui.text(this, "⚡  " + Tr.t("Add this app to your phone's game mode first"), 15, Ui.GOLD, true);
-        gameModeCard.addView(title);
-        note = Ui.text(this, "", 12.5f, Ui.TEXT, false);
-        note.setLineSpacing(dp(2), 1);
-        note.setPadding(0, dp(6), 0, dp(8));
-        gameModeCard.addView(note);
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.END);
-        TextView done = Ui.button(this, Tr.t("Done, hide this"), false);
-        done.setOnClickListener(v -> {
+        gameModeBanner = new Banner(Ui.GOLD);
+        gameModeBanner.title.setText("⚡  " + Tr.t("Add this app to your phone's game mode first"));
+        note = gameModeBanner.body;
+        gameModeBanner.button(Tr.t("Done, hide this"), false, v -> {
             getSharedPreferences("launcher", MODE_PRIVATE).edit().putBoolean("game_mode_done", true).apply();
-            gameModeCard.setVisibility(View.GONE);
+            gameModeBanner.wanted = false;
+            showNotices();
             start.requestFocus();
         });
-        row.addView(done);
-        gameModeCard.addView(row, new LinearLayout.LayoutParams(-1, -2));
-        return gameModeCard;
+        return gameModeBanner.view;
     }
 
     private View buildUpdateCard() {
-        updateCard = new LinearLayout(this);
-        updateCard.setOrientation(LinearLayout.VERTICAL);
-        updateCard.setPadding(dp(16), dp(12), dp(16), dp(12));
-        updateCard.setBackground(Ui.rect(this, Ui.alpha(Ui.PANEL, 0xe0), Ui.CYAN, 2, 16));
-        updateTitle = Ui.text(this, "", 15, Ui.CYAN, true);
-        updateCard.addView(updateTitle);
-        updateHow = Ui.text(this, "", 12.5f, Ui.TEXT, false);
-        updateHow.setPadding(0, dp(6), 0, dp(8));
-        updateCard.addView(updateHow);
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.END);
-        TextView later = Ui.button(this, Tr.t("Later"), false);
-        later.setOnClickListener(v -> { updateCard.setVisibility(View.GONE); start.requestFocus(); });
-        row.addView(later);
-        row.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
-        updateNotes = Ui.button(this, Tr.t("What's new"), false);
-        updateNotes.setOnClickListener(v -> Updates.open(this, updateUrl));
-        row.addView(updateNotes);
-        row.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
-        updateNow = Ui.button(this, Tr.t("Update now"), true);
-        updateNow.setOnClickListener(v -> updateNow());
-        row.addView(updateNow);
-        updateCard.addView(row, new LinearLayout.LayoutParams(-1, -2));
-        updateCard.setVisibility(View.GONE);
-        return updateCard;
+        updateBanner = new Banner(Ui.CYAN);
+        updateTitle = updateBanner.title;
+        updateHow = updateBanner.body;
+        updateBanner.button(Tr.t("Later"), false, v -> { updateBanner.wanted = false; showNotices(); start.requestFocus(); });
+        updateNotes = updateBanner.button(Tr.t("What's new"), false, v -> Updates.open(this, updateUrl));
+        updateNow = updateBanner.button(Tr.t("Update now"), true, v -> updateNow());
+        return updateBanner.view;
     }
 
     // The card: a newer release (Update now), or, right after an update, SET UP again for its new runtime.
     private void showUpdate() {
-        if (updateCard == null || downloading) return;
+        if (updateBanner == null || downloading) return;
         if (update != null) {
             updateTitle.setText("⬆  " + Tr.f("Update available: %s", update.tag));
             updateHow.setText(Tr.f("Update now downloads the new app (%s MB) and opens the installer. Your game "
@@ -835,7 +904,7 @@ public final class LauncherActivity extends Activity {
             updateNow.setText(Tr.t("Update now"));
             updateNow.setVisibility(View.VISIBLE);
             updateNotes.setVisibility(View.VISIBLE);
-            updateCard.setVisibility(View.VISIBLE);
+            updateBanner.wanted = true;
         } else if (Setup.onDevice(this) && Setup.builtByOtherVersion(this)) {
             updateTitle.setText("✓  " + Tr.f("Updated to %s", Report.appVersion(this)));
             updateNotes.setVisibility(View.GONE);
@@ -849,10 +918,11 @@ public final class LauncherActivity extends Activity {
                 updateNow.setText(Tr.t("SET UP again"));
                 updateNow.setVisibility(View.VISIBLE);
             }
-            updateCard.setVisibility(View.VISIBLE);
+            updateBanner.wanted = true;
         } else {
-            updateCard.setVisibility(View.GONE);
+            updateBanner.wanted = false;
         }
+        showNotices();
     }
 
     private void updateNow() {
@@ -888,20 +958,14 @@ public final class LauncherActivity extends Activity {
         });
     }
 
-    private LinearLayout.LayoutParams gameModeParams() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = dp(12);
-        return lp;
-    }
-
     private void showNote() {
         String mode = gameMode();
         note.setText(Tr.t("Many phones (vivo, Xiaomi, OPPO, Honor, Samsung and others) slow down apps they do not know "
                 + "as games. Add Bayonetta 3 Recomp in your phone's Game Center, Game Booster, Game Space or game mode "
                 + "before you play, or it cannot run at full speed.")
                 + (mode != null ? "\n" + Tr.f("Game mode now: %s", Tr.t(mode)) : ""));
-        gameModeCard.setVisibility(getSharedPreferences("launcher", MODE_PRIVATE).getBoolean("game_mode_done", false)
-                ? View.GONE : View.VISIBLE);
+        gameModeBanner.wanted = !getSharedPreferences("launcher", MODE_PRIVATE).getBoolean("game_mode_done", false);
+        showNotices();
     }
 
     // ---- actions --------------------------------------------------------------------------------------------------
@@ -1068,7 +1132,7 @@ public final class LauncherActivity extends Activity {
             return;
         }
         if (!data.ready()) {
-            Toast.makeText(this, Tr.t("The game data is incomplete: the list on the left says what is missing."),
+            Toast.makeText(this, Tr.t("The game data is incomplete: the notice on the left says what is missing."),
                     Toast.LENGTH_LONG).show();
             return;
         }
@@ -1082,7 +1146,7 @@ public final class LauncherActivity extends Activity {
     private void openPanel() {
         if (cfg == null) return;
         panelLayer.setVisibility(View.VISIBLE);
-        panel.setTranslationX(dp(460));
+        panel.setTranslationX(panelWidth);
         panel.animate().translationX(0).setDuration(180).start();
         if (Build.VERSION.SDK_INT >= 31)
             art.setRenderEffect(RenderEffect.createBlurEffect(dp(14), dp(14), Shader.TileMode.CLAMP));
@@ -1093,7 +1157,7 @@ public final class LauncherActivity extends Activity {
         if (panelLayer.getVisibility() != View.VISIBLE) return;
         saveAdvanced();
         hideKeyboard();
-        panel.animate().translationX(dp(460)).setDuration(150).withEndAction(() -> panelLayer.setVisibility(View.GONE)).start();
+        panel.animate().translationX(panelWidth).setDuration(150).withEndAction(() -> panelLayer.setVisibility(View.GONE)).start();
         if (Build.VERSION.SDK_INT >= 31) art.setRenderEffect(null);
         start.requestFocus();
     }
@@ -1172,7 +1236,7 @@ public final class LauncherActivity extends Activity {
     }
 
     private String report() {
-        return Report.text(this, "launcher", gpu, data, cfg, String.valueOf(padValue.getText()));
+        return Report.text(this, "launcher", gpu, data, cfg, padDetail);
     }
 
     private void shareReport() { makeReport(false); }

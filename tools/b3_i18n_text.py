@@ -41,6 +41,7 @@ TEXT = {
     'Desktop shortcut': ('桌面快捷方式', 'デスクトップのショートカット'),
     'Follow the author on X: @aoxzh': ('在 X 上关注作者：@aoxzh', 'X で作者をフォロー：@aoxzh'),
     'Update available: {tag}': ('有新版本：{tag}', '新しいバージョンがあります：{tag}'),
+    'Your settings, saves, game data and mods stay.': ('你的设置、存档、游戏数据和 mod 都会保留。', '設定、セーブ、ゲームデータ、MOD はそのまま残ります。'),
     'Check for updates': ('检查更新', '更新を確認'),
     'Update now': ('立即更新', '今すぐ更新'),
     "What's new": ('更新内容', '変更内容'),

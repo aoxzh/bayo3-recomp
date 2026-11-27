@@ -89,8 +89,8 @@ bool present_pass_record(VkCommandBuffer cb, GpuImage& src, const int32_t* crop,
 void present_pass_release();  // its views of the swapchain images, before the swapchain is destroyed
 bool present_pass_failed();   // the pass could not be made: frames are blitted, upright
 GpuImage* present_pass_test_target();  // NX_PRESENT_TEST: an offscreen "display" for the pass (headless dumps)
-// nvn_frame_overlay.cpp: the frame rate the present pass draws in the top left corner (NX_FPS_OVERLAY, on by default
-// on Android). fps_overlay_frame() is called once per presented frame; fps_overlay_rate() is 0 while the readout is
+// nvn_frame_overlay.cpp: the frame rate the present pass draws in the top left corner (NX_FPS_OVERLAY, off by
+// default). fps_overlay_frame() is called once per presented frame; fps_overlay_rate() is 0 while the readout is
 // off or has no full second of frames yet.
 void fps_overlay_frame();
 double fps_overlay_rate();

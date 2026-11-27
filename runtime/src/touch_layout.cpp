@@ -186,8 +186,8 @@ void Spring::step(float target, float dt, float k, float c) {
 }
 
 namespace {
-// A label's tint: dark on a light button, white on a pressed (dark) one.
-constexpr float kLabelDark = 0.16f;
+// A label's tint: white on the dark glass at rest, dark on the gold of a pressed button (touch_art.cpp).
+constexpr float kLabelRest = 0.97f, kLabelHeld = 0.10f;
 // Push a sprite unless it is invisible or there is no room.
 size_t put(OverlaySprite* out, size_t k, size_t max, const OverlaySprite& s) {
     if (k >= max || s.alpha <= 0.003f) return k;
@@ -235,7 +235,7 @@ size_t button_sprites(const TouchButton& b, float press, float ripple, float sha
     n = put(out, n, max, {b.x, b.y, hw * s, hh * s, down, a * p, 1.0f});
     const float gw = (glyph == art::kGlyphZL || glyph == art::kGlyphZR) ? g * 2.0f : g;
     n = put(out, n, max, {b.x, b.y + (trigger ? b.r * 0.08f : 0.0f), gw * s, g * s, glyph, a,
-                          kLabelDark + (1.0f - kLabelDark) * p});
+                          kLabelRest + (kLabelHeld - kLabelRest) * p});
     return n;
 }
 

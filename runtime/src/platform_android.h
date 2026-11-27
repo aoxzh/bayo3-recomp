@@ -15,6 +15,7 @@ int32_t on_input(android_app*, AInputEvent* e);    // platform_android_input.cpp
 void release_input();                              // platform_android_input.cpp: no button, stick or finger held
 void open_menu();                                  // platform_android.cpp: hold the game, show GameActivity's menu
 extern std::atomic<int32_t> g_pad_device;          // platform_android_rumble.cpp: the controller that last sent input
+bool controller_in_use();                         // platform_android_input.cpp: the last input came from a controller
 void android_rumble_tick(android_app* app);        // platform_android_rumble.cpp: the game's rumble to that controller
 
 }  // namespace nx::plat
