@@ -147,6 +147,11 @@ final class TrText {
                 "新しいバージョンの修正をゲームに反映するため、もう一度 SET UP をタップしてください。前回の続きから進み、変わった部分だけを"
                 + "再ビルドします。"},
         {"SET UP again", "再次 SET UP", "もう一度 SET UP"},
+        {"The game on this phone came from your computer: update the desktop launcher too, then use Send to my "
+                + "phone again so the game gets the new version's fixes.",
+                "这台手机上的游戏是从电脑发送过来的：请先把电脑上的启动器也更新，再用一次「发送到手机」，游戏就能用上新版本的修复。",
+                "このスマートフォンのゲームは PC から送られたものです。PC のランチャーも更新してから、もう一度「スマートフォンに送る」を"
+                + "使うと、新しいバージョンの修正がゲームに反映されます。"},
         {"Opens the in-game menu. Guide and Back x3 always work too", "打开游戏内菜单。Guide 键和连按三次返回始终可用",
                 "ゲーム内メニューを開きます。Guide と戻る 3 回はいつでも使えます"},
         {"Guide or Back x3", "Guide 或返回 ×3", "Guide か戻る ×3"},

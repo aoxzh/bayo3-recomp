@@ -62,15 +62,32 @@ final class Setup {
     // the game only through SET UP again (it resumes: only what changed is rebuilt).
     static File builtStamp(Context c) { return new File(c.getFilesDir(), "game/built_with.txt"); }
 
-    static void markBuilt(Context c) {
-        try (Writer w = new FileWriter(builtStamp(c))) { w.write(Report.appVersion(c)); } catch (IOException ignored) {}
+    static void markBuilt(Context c) { markBuilt(c, ""); }
+
+    /** how: "" built here, " pc" received from a computer (tools/b3_win.py phone). */
+    static void markBuilt(Context c, String how) {
+        try (Writer w = new FileWriter(builtStamp(c))) { w.write(Report.appVersion(c) + how); } catch (IOException ignored) {}
+    }
+
+    /** The game was set up on this phone (the tools' state is there): a new version needs only
+     *  `b3_win.py update`, as the desktop's Rebuild: no dump (the first setup moved it), only what changed. */
+    static boolean refreshOnly(Context c) {
+        return gameLibrary(c).isFile() && new File(c.getFilesDir(), "b3/win/state.json").isFile();
+    }
+
+    /** The game came from a computer (Send to my phone): a new version is sent the same way. A game with no setup
+     *  state here came from one too, also from a version before the stamp. */
+    static boolean fromComputer(Context c) {
+        return gameLibrary(c).isFile() && !refreshOnly(c);
     }
 
     /** The game is there but was built by another version of this app (a release, not a development build). */
     static boolean builtByOtherVersion(Context c) {
         String v = Report.appVersion(c);
         if (!gameLibrary(c).isFile() || Updates.parse(v) == null) return false;
-        return !v.equals(builtStamp(c).isFile() ? read(builtStamp(c)) : null);
+        String stamp = builtStamp(c).isFile() ? read(builtStamp(c)) : null;
+        if (stamp != null && stamp.endsWith(" pc")) stamp = stamp.substring(0, stamp.length() - 3);
+        return !v.equals(stamp);
     }
 
     static File dumpFolder(Context c) {
@@ -148,7 +165,7 @@ final class Setup {
     // What is missing, in plain words, or null when an extraction was found (b3_win.py checks the files themselves:
     // version 1.2.0, a complete RomFS).
     static String dumpProblem(Context c) {
-        if (findDump(c) != null) return null;
+        if (refreshOnly(c) || findDump(c) != null) return null;
         return Tr.f("no extracted game found. Extract the ExeFS and the RomFS of your Bayonetta 3 (update 1.2.0 "
                 + "installed) with your emulator (Ryujinx: right-click > Extract Data > ExeFS, then RomFS; Eden / "
                 + "yuzu: Dump RomFS > Full, and Dump ExeFS) and copy the folder with exefs and romfs to the phone, "
@@ -226,9 +243,13 @@ final class Setup {
             cmd.add(lib + "/libb3python.so");
             cmd.add("-u");
             cmd.add(new File(b3, "repo/tools/b3_win.py").getPath());
-            cmd.add("setup");
-            cmd.add("--dump");
-            cmd.add(dumpFolder(c).getPath());
+            if (refreshOnly(c)) {  // set up before: bring it up to date with this version's tools and runtime
+                cmd.add("update");
+            } else {
+                cmd.add("setup");
+                cmd.add("--dump");
+                cmd.add(dumpFolder(c).getPath());
+            }
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.directory(new File(b3, "repo"));
             pb.redirectErrorStream(true);

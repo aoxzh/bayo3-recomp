@@ -134,7 +134,7 @@ final class GameImport {
             part.delete();
             return "ERR cannot replace " + lib;
         }
-        Setup.markBuilt(context);  // built on the computer for this phone: no SET UP again needed
+        Setup.markBuilt(context, " pc");  // built on the computer for this phone, by its own version
         return "OK " + size;
     }
 

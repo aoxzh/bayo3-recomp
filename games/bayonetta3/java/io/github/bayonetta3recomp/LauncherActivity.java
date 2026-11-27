@@ -100,7 +100,7 @@ public final class LauncherActivity extends Activity {
     private TextView updateTitle;
     private String updateUrl = Updates.RELEASES;
     private Updates.Release update;   // the newer release found at start
-    private TextView updateHow, updateNow;
+    private TextView updateHow, updateNow, updateNotes;
     private boolean downloading;
     private View dataDot, cacheDot, padDot, heatDot;
     private Ui.Row langRow, resRow, swapRow, menuRow, updatesRow, muteRow, touchRow, opacityRow, sizeRow, folderRow;
@@ -307,10 +307,19 @@ public final class LauncherActivity extends Activity {
         title.setShadowLayer(dp(10), 0, 0, Ui.alpha(Ui.CYAN, 0x60));
         titleRow.addView(title);
         left.addView(titleRow);
+        LinearLayout subRow = new LinearLayout(this);
+        subRow.setGravity(Gravity.CENTER_VERTICAL);
+        subRow.setPadding(0, dp(2), 0, dp(10));
         TextView sub = Ui.text(this, Tr.t("Static recompilation · Android"), 13, Ui.MUTED, false);
         sub.setLetterSpacing(0.04f);
-        sub.setPadding(0, dp(6), 0, dp(14));
-        left.addView(sub);
+        subRow.addView(sub);
+        TextView follow = Ui.text(this, "   ·   " + Tr.t("Follow @aoxzh") + " ↗", 13, Ui.CYAN, true);
+        follow.setPadding(0, dp(8), dp(8), dp(8));  // a finger-sized target around the short text
+        follow.setBackground(Ui.states(this, 0, 0, 0, 0, 10));
+        Ui.focusable(follow);
+        follow.setOnClickListener(v -> Updates.open(this, Updates.AUTHOR));
+        subRow.addView(follow);
+        left.addView(subRow);
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -348,10 +357,6 @@ public final class LauncherActivity extends Activity {
         right.setOrientation(LinearLayout.VERTICAL);
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.END);
-        TextView follow = Ui.button(this, Tr.t("Follow @aoxzh"), false);
-        follow.setOnClickListener(v -> Updates.open(this, Updates.AUTHOR));
-        top.addView(follow);
-        top.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
         TextView report = Ui.button(this, Tr.t("Report a bug"), false);
         report.setOnClickListener(v -> reportIssue());
         top.addView(report);
@@ -361,12 +366,21 @@ public final class LauncherActivity extends Activity {
         settings.setOnClickListener(v -> openPanel());
         top.addView(settings);
         right.addView(top, new LinearLayout.LayoutParams(-1, -2));
-        right.addView(new View(this), new LinearLayout.LayoutParams(-1, 0, 1));
+        // The profiles scroll in what height is left, START and its hint stay at the bottom: on a short screen
+        // (a phone about 410 dp tall, a large font) a fixed column pushed START off the screen.
+        ScrollView midScroll = new ScrollView(this);
+        midScroll.setVerticalScrollBarEnabled(false);
+        midScroll.setFillViewport(true);
+        LinearLayout mid = new LinearLayout(this);
+        mid.setOrientation(LinearLayout.VERTICAL);
+        mid.setGravity(Gravity.BOTTOM);
+        midScroll.addView(mid, new FrameLayout.LayoutParams(-1, -2));
+        right.addView(midScroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
         TextView perf = Ui.text(this, Tr.t("PERFORMANCE"), 11.5f, Ui.MUTED, true);
         perf.setLetterSpacing(0.16f);
         perf.setPadding(dp(4), 0, 0, dp(8));
-        right.addView(perf);
+        mid.addView(perf);
         for (int i = 0; i < PROFILES.length; i++) {
             final String id = PROFILES[i][0];
             LinearLayout r = new LinearLayout(this);
@@ -384,7 +398,7 @@ public final class LauncherActivity extends Activity {
             r.setOnClickListener(v -> setProfile(id));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
             lp.bottomMargin = dp(8);
-            right.addView(r, lp);
+            mid.addView(r, lp);
             profileRows[i] = r;
         }
         start = Ui.button(this, Tr.t("▶   START"), true);
@@ -799,9 +813,9 @@ public final class LauncherActivity extends Activity {
         later.setOnClickListener(v -> { updateCard.setVisibility(View.GONE); start.requestFocus(); });
         row.addView(later);
         row.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
-        TextView notes = Ui.button(this, Tr.t("What's new"), false);
-        notes.setOnClickListener(v -> Updates.open(this, updateUrl));
-        row.addView(notes);
+        updateNotes = Ui.button(this, Tr.t("What's new"), false);
+        updateNotes.setOnClickListener(v -> Updates.open(this, updateUrl));
+        row.addView(updateNotes);
         row.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
         updateNow = Ui.button(this, Tr.t("Update now"), true);
         updateNow.setOnClickListener(v -> updateNow());
@@ -819,12 +833,22 @@ public final class LauncherActivity extends Activity {
             updateHow.setText(Tr.f("Update now downloads the new app (%s MB) and opens the installer. Your game "
                     + "files and saves stay; afterwards tap SET UP again (a few minutes).", update.apkSize / 1000000));
             updateNow.setText(Tr.t("Update now"));
+            updateNow.setVisibility(View.VISIBLE);
+            updateNotes.setVisibility(View.VISIBLE);
             updateCard.setVisibility(View.VISIBLE);
         } else if (Setup.onDevice(this) && Setup.builtByOtherVersion(this)) {
             updateTitle.setText("✓  " + Tr.f("Updated to %s", Report.appVersion(this)));
-            updateHow.setText(Tr.t("Tap SET UP again so the game gets the new version's fixes. It picks up where "
-                    + "the last one ended: only what changed is rebuilt."));
-            updateNow.setText(Tr.t("SET UP again"));
+            updateNotes.setVisibility(View.GONE);
+            if (Setup.fromComputer(this)) {  // nothing to rebuild here: the computer sends the new build
+                updateHow.setText(Tr.t("The game on this phone came from your computer: update the desktop "
+                        + "launcher too, then use Send to my phone again so the game gets the new version's fixes."));
+                updateNow.setVisibility(View.GONE);
+            } else {
+                updateHow.setText(Tr.t("Tap SET UP again so the game gets the new version's fixes. It picks up "
+                        + "where the last one ended: only what changed is rebuilt."));
+                updateNow.setText(Tr.t("SET UP again"));
+                updateNow.setVisibility(View.VISIBLE);
+            }
             updateCard.setVisibility(View.VISIBLE);
         } else {
             updateCard.setVisibility(View.GONE);
