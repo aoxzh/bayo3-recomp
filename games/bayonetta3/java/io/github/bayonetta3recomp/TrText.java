@@ -107,6 +107,14 @@ final class TrText {
         {"System language", "跟随系统", "システムの言語"},
         {"Xbox button layout", "Xbox 按键布局", "Xbox ボタン配置"},
         {"Menu button", "菜单按键", "メニューボタン"},
+        {"Resolution", "分辨率", "解像度"},
+        {"Handheld · 720p", "掌机 · 720p", "携帯モード · 720p"},
+        {"Docked · 1080p", "主机 · 1080p", "TV モード · 1080p"},
+        {"Docked draws the game as on a TV (up to 1600×900, shown at 1080p): sharper, but much heavier on the GPU, "
+                + "the battery and the heat. Takes effect at the next start",
+                "主机模式按接电视的方式绘制游戏（最高 1600×900，以 1080p 输出）：更清晰，但 GPU、耗电和发热都会重很多。下次启动游戏时生效",
+                "TV モードはテレビにつないだときと同じように描画します（最大 1600×900、1080p で表示）：くっきりしますが、GPU、"
+                + "バッテリー、発熱の負担がかなり増えます。次の起動から反映されます"},
         {"Follow @aoxzh", "关注 @aoxzh", "@aoxzh をフォロー"},
         {"Follow the author", "关注作者", "作者をフォロー"},
         {"@aoxzh on X: news, previews and releases", "X 上的 @aoxzh：动态、预览和新版本", "X の @aoxzh：お知らせ、プレビュー、リリース"},

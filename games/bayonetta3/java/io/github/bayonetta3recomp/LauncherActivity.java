@@ -67,6 +67,9 @@ public final class LauncherActivity extends Activity {
     // NX_MENU_COMBO: a controller pair that opens the in-game menu, besides Guide and Back x3 (#12).
     private static final String[][] MENU = {{"", Tr.t("Guide or Back x3")}, {"select_start", Tr.t("Select + Start")},
             {"l3_r3", Tr.t("L3 + R3")}};
+    // NX_HANDHELD (platform_android.cpp: unset means handheld on a phone): handheld renders 1280x720; docked is the
+    // TV mode, up to 1600x900 shown at 1080p, much heavier on the GPU.
+    private static final String[][] RESOLUTION = {{"", Tr.t("Handheld · 720p")}, {"0", Tr.t("Docked · 1080p")}};
     private static final String[][] TOUCH = {{"1", Tr.t("Hide with a pad")}, {"2", Tr.t("Always")}, {"0", Tr.t("Off")}};
     private static final int[] OPACITY = {40, 55, 70, 85, 100};
     private static final int[] SIZE = {70, 85, 100, 115, 130};
@@ -100,7 +103,7 @@ public final class LauncherActivity extends Activity {
     private TextView updateHow, updateNow;
     private boolean downloading;
     private View dataDot, cacheDot, padDot, heatDot;
-    private Ui.Row langRow, swapRow, menuRow, updatesRow, muteRow, touchRow, opacityRow, sizeRow, folderRow;
+    private Ui.Row langRow, resRow, swapRow, menuRow, updatesRow, muteRow, touchRow, opacityRow, sizeRow, folderRow;
     private LinearLayout advanced;
     private TextView advancedRow, folderText;
     private EditText advancedText;
@@ -489,6 +492,13 @@ public final class LauncherActivity extends Activity {
             cfg.set("language", LANGUAGES[i][0].isEmpty() ? null : LANGUAGES[i][0]);
             saveAndShow();
         };
+        resRow = row(list, Tr.t("Resolution"), Tr.t("Docked draws the game as on a TV (up to 1600×900, shown at "
+                + "1080p): sharper, but much heavier on the GPU, the battery and the heat. Takes effect at the next start"));
+        resRow.stepper = d -> {
+            int i = (index(RESOLUTION, cfg.get("NX_HANDHELD", "")) + d + RESOLUTION.length) % RESOLUTION.length;
+            cfg.set("NX_HANDHELD", RESOLUTION[i][0].isEmpty() ? null : RESOLUTION[i][0]);
+            saveAndShow();
+        };
         swapRow = row(list, Tr.t("Xbox button layout"), Tr.t("On: the button marked A is the game's A. Off: by position, as on Switch"));
         swapRow.stepper = d -> { cfg.set("NX_PAD_SWAP", on("NX_PAD_SWAP") ? null : "1"); saveAndShow(); };
         menuRow = row(list, Tr.t("Menu button"), Tr.t("Opens the in-game menu. Guide and Back x3 always work too"));
@@ -665,6 +675,9 @@ public final class LauncherActivity extends Activity {
         langRow.show(LANGUAGES[index(LANGUAGES, lang)][1], true);
         swapRow.show(Tr.t(on("NX_PAD_SWAP") ? "On" : "Off"), on("NX_PAD_SWAP"));
         updatesRow.show(Tr.t(Updates.enabled(this) ? "On" : "Off"), Updates.enabled(this));
+        String res = cfg.get("NX_HANDHELD", "");
+        if (!res.equals("0")) res = "";  // NX_HANDHELD=1 written by hand: handheld, as unset
+        resRow.show(RESOLUTION[index(RESOLUTION, res)][1], res.equals("0"));
         String menu = cfg.get("NX_MENU_COMBO", "");
         menuRow.show(MENU[index(MENU, menu)][1], !menu.isEmpty());
         muteRow.show(Tr.t(on("NX_MUTE") ? "On" : "Off"), on("NX_MUTE"));
