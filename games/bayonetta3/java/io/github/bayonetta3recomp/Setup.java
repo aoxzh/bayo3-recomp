@@ -58,6 +58,21 @@ final class Setup {
 
     static File gameLibrary(Context c) { return new File(c.getFilesDir(), "game/libbayonetta3.so"); }
 
+    // The app version that built (or received) the game. An update of the app brings a new runtime, which reaches
+    // the game only through SET UP again (it resumes: only what changed is rebuilt).
+    static File builtStamp(Context c) { return new File(c.getFilesDir(), "game/built_with.txt"); }
+
+    static void markBuilt(Context c) {
+        try (Writer w = new FileWriter(builtStamp(c))) { w.write(Report.appVersion(c)); } catch (IOException ignored) {}
+    }
+
+    /** The game is there but was built by another version of this app (a release, not a development build). */
+    static boolean builtByOtherVersion(Context c) {
+        String v = Report.appVersion(c);
+        if (!gameLibrary(c).isFile() || Updates.parse(v) == null) return false;
+        return !v.equals(builtStamp(c).isFile() ? read(builtStamp(c)) : null);
+    }
+
     static File dumpFolder(Context c) {
         File found = findDump(c);
         return found != null ? found : new File(DataCheck.target(c), "dump");
@@ -246,6 +261,7 @@ final class Setup {
             int code = p.waitFor();
             synchronized (this) {
                 ok = code == 0 && gameLibrary(c).isFile();
+                if (ok) markBuilt(c);
                 if (!ok) error = "setup stopped (exit " + code + "): " + String.join(" / ", tail);
             }
         } catch (Exception e) {

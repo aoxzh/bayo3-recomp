@@ -16,6 +16,8 @@
     <!-- The on-device setup (Setup.java) fetches one file: the Kraken decoder's source, pinned by its sha256, which
          its license keeps out of the APK. The game itself uses no network. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Update now: the new release's APK, downloaded by the launcher, handed to the installer (Updates.java). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Controller rumble: Vibrator/VibratorManager.vibrate of the controller (platform_android_rumble.cpp). -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- The on-phone setup goes on with the screen off or the app in the background (SetupService.java): a

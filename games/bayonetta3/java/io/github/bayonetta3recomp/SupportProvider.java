@@ -25,7 +25,7 @@ public final class SupportProvider extends ContentProvider {
 
     private File file(Uri uri) throws FileNotFoundException {
         String name = uri.getLastPathSegment();
-        if (name == null || name.contains("/") || !name.endsWith(".zip")) throw new FileNotFoundException(String.valueOf(uri));
+        if (name == null || name.contains("/") || !(name.endsWith(".zip") || name.endsWith(".apk"))) throw new FileNotFoundException(String.valueOf(uri));
         File f = new File(dir(getContext()), name);
         if (!f.isFile()) throw new FileNotFoundException(f.getPath());
         return f;
@@ -33,7 +33,10 @@ public final class SupportProvider extends ContentProvider {
 
     @Override public boolean onCreate() { return true; }
 
-    @Override public String getType(Uri uri) { return "application/zip"; }
+    @Override public String getType(Uri uri) {
+        String name = uri.getLastPathSegment();
+        return name != null && name.endsWith(".apk") ? "application/vnd.android.package-archive" : "application/zip";
+    }
 
     @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
         if (!"r".equals(mode)) throw new FileNotFoundException("read-only");

@@ -43,6 +43,7 @@ jobs:
           python3 tests/test_b3_phone.py
           python3 tests/test_b3_dump.py
           python3 tests/test_b3_spec.py
+          python3 tests/test_b3_update.py
           python3 tools/b3_data.py --help > /dev/null
       # The recompiler's analysis imports capstone (and lz4 through nso), which the runners do not ship.
       # A venv keeps it out of the system Python, which Debian marks externally managed.

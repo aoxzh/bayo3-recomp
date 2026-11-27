@@ -649,7 +649,8 @@ class Launcher(tk.Tk):
         self.task_lines = queue.Queue()
         self.task_log = []
         self.task_step, self.task_done, self.task_total = '', 0, 1
-        self.update_found = None  # (tag, url) of a newer release, from b3_update in the background
+        self.update_found = None  # a newer release (b3_update.latest_release), from the check at start
+        self.updating = None      # the update's progress line while it downloads and unpacks
         self.exit_text = None  # the game's last exit, kept on the home screen until something else is said
 
         _pick_fonts(self)    # before any widget: every font and canvas length below reads the result
@@ -784,11 +785,59 @@ class Launcher(tk.Tk):
         if found:
             self.after(0, lambda: (setattr(self, 'update_found', found), self._schedule_layout()))
 
+    def start_update(self):
+        """Update now: download this platform's package of the newer release, check it, put it in place on a
+        restart (b3_update.apply_and_restart) and rebuild the game after it."""
+        release = self.update_found
+        if not release or self.updating or self.task is not None:
+            return
+        if self.proc is not None:
+            messagebox.showinfo(_('Update'), _('Close the game first, then update.'), parent=self)
+            return
+        asset = b3_update.package_asset(release)
+        size = f'{asset[2] / 1e6:.0f} MB' if asset else '?'
+        if not messagebox.askokcancel(
+                _('Update to {tag}').format(tag=release['tag']),
+                _('This downloads the new release ({size}), checks it, and puts it in place of the program files. '
+                  'Your settings, saves, game data and mods stay.\n\nThe launcher then restarts and rebuilds the '
+                  'game with the new version (a few minutes).').format(size=size), parent=self):
+            return
+        self.updating = _('Update: starting the download')
+        self._schedule_layout()
+
+        def progress(done, total):
+            text = _('Update: downloading {done} / {total} MB').format(done=done // 1000000,
+                                                                       total=total // 1000000 or '?')
+            self.after(0, lambda: (setattr(self, 'updating', text), self._schedule_layout()))
+
+        def work():
+            try:
+                new = b3_update.prepare(self.root, release, progress)
+            except Exception as exc:  # offline, a bad download: say so, keep running as before
+                self.after(0, lambda: self._update_failed(str(exc)))
+                return
+            self.after(0, lambda: self._update_ready(new))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _update_failed(self, why):
+        self.updating = None
+        self._set_status(_('Update stopped: {why}').format(why=why), bad=True)
+
+    def _update_ready(self, new):
+        self.updating = _('Update: restarting…')
+        self._schedule_layout()
+        try:
+            b3_update.apply_and_restart(self.root, new)
+        except OSError as exc:
+            self._update_failed(str(exc))
+            return
+        self.after(400, self.destroy)
+
     def _link(self, x, y, text, url, colour, tag, size=10):
-        """A clickable line of text, right-aligned at x, that opens url in the browser."""
+        """A clickable line of text, right-aligned at x: opens url in the browser, or calls it."""
         c = self.canvas
         self._text(x, y, text, (UI, size, 'bold'), colour, anchor='e', tags=(tag,))
-        c.tag_bind(tag, '<Button-1>', lambda _e: self._open_url(url))
+        c.tag_bind(tag, '<Button-1>', lambda _e: url() if callable(url) else self._open_url(url))
         c.tag_bind(tag, '<Enter>', lambda _e: c.configure(cursor='hand2'))
         c.tag_bind(tag, '<Leave>', lambda _e: c.configure(cursor=''))
 
@@ -810,16 +859,21 @@ class Launcher(tk.Tk):
         # Top right: the author's X profile, and a newer release when the start-up check found one.
         self._link(w - px(64), px(60), _('Follow the author on X: @aoxzh') + '  ↗', b3_update.AUTHOR_URL, CYAN,
                    'follow')
-        if self.update_found:
-            tag, url = self.update_found
-            self._link(w - px(64), px(90), _('Update available: {tag}').format(tag=tag) + '  ↗', url, GOLD,
-                       'update', size=11)
+        if self.updating:
+            self._text(w - px(64), px(90), self.updating, (UI, 11, 'bold'), GOLD, anchor='e')
+        elif self.update_found:
+            self._link(w - px(64), px(90), _('Update available: {tag}').format(tag=self.update_found['tag'])
+                       + '  ·  ' + _('Update now'), self.start_update, GOLD, 'update', size=11)
+            self._link(w - px(64), px(116), _("What's new") + '  ↗', self.update_found['url'], MUTED, 'notes',
+                       size=9)
         # The menu: large serif words, the selected one gold with a cyan diamond, as a pad-first menu reads.
         labels = {'play': _('Stop game') if self.proc is not None else _('Start game'), 'settings': _('Settings'),
                   'log': _('Hide game log') if self.log_shown else _('Game log'), 'report': _('Report a bug'),
                   'quit': _('Quit'),
                   'setup': _('Setting up…') if self.task else _('Set up from my dump'),
                   'rebuild': _('Rebuilding…') if self.task else _('Rebuild'),
+                  'update': (_('Update to {tag}').format(tag=self.update_found['tag'])
+                             if self.update_found else _('Update now')),
                   'phone': _('Sending to the phone…') if self.task else _('Send to my phone')}
         step = px(54)
         menu = self._menu()
@@ -1094,7 +1148,9 @@ class Launcher(tk.Tk):
             return self.MENU
         if not cfg.install_state(self.root)['built']:
             return ('setup', 'settings', 'log', 'report', 'quit')
-        return ('play', 'rebuild', 'phone', 'settings', 'log', 'report', 'quit')
+        # A newer release found at start: Update now in the menu too, for a controller (the Steam Deck).
+        update = ('update',) if self.update_found and not self.updating else ()
+        return ('play',) + update + ('rebuild', 'phone', 'settings', 'log', 'report', 'quit')
 
     def _menu_activate(self):
         menu = self._menu()
@@ -1104,6 +1160,8 @@ class Launcher(tk.Tk):
             self.run_setup()
         elif key == 'rebuild':
             self.run_task('update', ['update'])
+        elif key == 'update':
+            self.start_update()
         elif key == 'phone':
             self.send_to_phone()
         elif key == 'play':
@@ -1435,6 +1493,15 @@ class Launcher(tk.Tk):
             self._set_status(f'{_(self.task_kind.capitalize())}: {self.task_step or _("starting")} '
                              f'({self.task_done}/{self.task_total})')
         self.after(300, self._poll_task)
+
+    def after_update(self):
+        """Just updated: rebuild the game so it runs the new version's runtime (when it was built before)."""
+        version = b3_update.installed_version(self.root) or ''
+        if cfg.install_state(self.root)['built'] and (self.root / 'tools/b3_win.py').is_file():
+            self._set_status(_('Updated to {version}: rebuilding the game').format(version=version))
+            self.run_task('update', ['update'])
+        else:
+            self._set_status(_('Updated to {version}').format(version=version))
 
     def play_or_stop(self):
         if self.proc is None:
@@ -1815,6 +1882,11 @@ def main(argv):
         app.after(100, app.show_settings)
     if len(argv) > 1 and argv[1] in ('--play', 'play'):
         app.after(300, app.play)
+    if len(argv) > 1 and argv[1] == '--after-update':  # b3_update's helper put a new release in place
+        app.after(500, app.after_update)
+    if len(argv) > 1 and argv[1] == '--update-failed':
+        app.after(500, lambda: app._set_status(_('The update could not copy its files: see private/update/apply.log'),
+                                               bad=True))
     app.mainloop()
     return 0
 

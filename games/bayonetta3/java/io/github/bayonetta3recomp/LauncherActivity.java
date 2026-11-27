@@ -96,6 +96,9 @@ public final class LauncherActivity extends Activity {
     private LinearLayout updateCard;  // a newer release on GitHub (Updates.check), hidden until one is found
     private TextView updateTitle;
     private String updateUrl = Updates.RELEASES;
+    private Updates.Release update;   // the newer release found at start
+    private TextView updateHow, updateNow;
+    private boolean downloading;
     private View dataDot, cacheDot, padDot, heatDot;
     private Ui.Row langRow, swapRow, menuRow, updatesRow, muteRow, touchRow, opacityRow, sizeRow, folderRow;
     private LinearLayout advanced;
@@ -117,10 +120,10 @@ public final class LauncherActivity extends Activity {
         setContentView(root);
         hideBars();
         loadArt();
-        Updates.check(this, (tag, url) -> {
-            updateUrl = url;
-            updateTitle.setText("⬆  " + Tr.f("Update available: %s", tag));
-            updateCard.setVisibility(View.VISIBLE);
+        Updates.check(this, r -> {
+            update = r;
+            updateUrl = r.page;
+            showUpdate();
         });
         new Thread(() -> {
             String g = null;
@@ -222,6 +225,7 @@ public final class LauncherActivity extends Activity {
         showData();
         showProfile();
         showSettings();
+        showUpdate();
         showPads();
         showHeat();
         showChip();
@@ -773,22 +777,78 @@ public final class LauncherActivity extends Activity {
         updateCard.setBackground(Ui.rect(this, Ui.alpha(Ui.PANEL, 0xe0), Ui.CYAN, 2, 16));
         updateTitle = Ui.text(this, "", 15, Ui.CYAN, true);
         updateCard.addView(updateTitle);
-        TextView how = Ui.text(this, Tr.t("Download the new APK and install it over this app, then tap SET UP "
-                + "again. Your game files and saves stay."), 12.5f, Ui.TEXT, false);
-        how.setPadding(0, dp(6), 0, dp(8));
-        updateCard.addView(how);
+        updateHow = Ui.text(this, "", 12.5f, Ui.TEXT, false);
+        updateHow.setPadding(0, dp(6), 0, dp(8));
+        updateCard.addView(updateHow);
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.END);
         TextView later = Ui.button(this, Tr.t("Later"), false);
         later.setOnClickListener(v -> { updateCard.setVisibility(View.GONE); start.requestFocus(); });
         row.addView(later);
         row.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
-        TextView get = Ui.button(this, Tr.t("Open the release page"), false);
-        get.setOnClickListener(v -> Updates.open(this, updateUrl));
-        row.addView(get);
+        TextView notes = Ui.button(this, Tr.t("What's new"), false);
+        notes.setOnClickListener(v -> Updates.open(this, updateUrl));
+        row.addView(notes);
+        row.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
+        updateNow = Ui.button(this, Tr.t("Update now"), true);
+        updateNow.setOnClickListener(v -> updateNow());
+        row.addView(updateNow);
         updateCard.addView(row, new LinearLayout.LayoutParams(-1, -2));
         updateCard.setVisibility(View.GONE);
         return updateCard;
+    }
+
+    // The card: a newer release (Update now), or, right after an update, SET UP again for its new runtime.
+    private void showUpdate() {
+        if (updateCard == null || downloading) return;
+        if (update != null) {
+            updateTitle.setText("⬆  " + Tr.f("Update available: %s", update.tag));
+            updateHow.setText(Tr.f("Update now downloads the new app (%s MB) and opens the installer. Your game "
+                    + "files and saves stay; afterwards tap SET UP again (a few minutes).", update.apkSize / 1000000));
+            updateNow.setText(Tr.t("Update now"));
+            updateCard.setVisibility(View.VISIBLE);
+        } else if (Setup.onDevice(this) && Setup.builtByOtherVersion(this)) {
+            updateTitle.setText("✓  " + Tr.f("Updated to %s", Report.appVersion(this)));
+            updateHow.setText(Tr.t("Tap SET UP again so the game gets the new version's fixes. It picks up where "
+                    + "the last one ended: only what changed is rebuilt."));
+            updateNow.setText(Tr.t("SET UP again"));
+            updateCard.setVisibility(View.VISIBLE);
+        } else {
+            updateCard.setVisibility(View.GONE);
+        }
+    }
+
+    private void updateNow() {
+        if (update == null) {  // SET UP again after an update
+            startActivity(new Intent(this, SetupActivity.class));
+            return;
+        }
+        if (downloading) return;
+        if (!getPackageManager().canRequestPackageInstalls()) {  // Android asks once: may this app install apps?
+            Toast.makeText(this, Tr.t("Allow installing apps from Bayonetta 3 Recomp, then come back and tap "
+                    + "Update now again."), Toast.LENGTH_LONG).show();
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + getPackageName())));
+            } catch (Exception ignored) {
+            }
+            return;
+        }
+        downloading = true;
+        updateNow.setEnabled(false);
+        updateNow.setAlpha(0.5f);
+        Updates.download(this, update, (done, total) -> updateHow.setText(
+                Tr.f("Downloading the new app: %1$d / %2$d MB", done / 1000000, total / 1000000)), (apk, error) -> {
+            downloading = false;
+            updateNow.setEnabled(true);
+            updateNow.setAlpha(1f);
+            if (apk == null) {
+                updateHow.setText(Tr.f("The download stopped: %s. Tap Update now to try again.", error));
+                return;
+            }
+            updateHow.setText(Tr.t("Downloaded. Confirm the install; afterwards open the app and tap SET UP again."));
+            Updates.install(this, apk);
+        });
     }
 
     private LinearLayout.LayoutParams gameModeParams() {

@@ -42,6 +42,25 @@ TEXT = {
     'Follow the author on X: @aoxzh': ('在 X 上关注作者：@aoxzh', 'X で作者をフォロー：@aoxzh'),
     'Update available: {tag}': ('有新版本：{tag}', '新しいバージョンがあります：{tag}'),
     'Check for updates': ('检查更新', '更新を確認'),
+    'Update now': ('立即更新', '今すぐ更新'),
+    "What's new": ('更新内容', '変更内容'),
+    'Update to {tag}': ('更新到 {tag}', '{tag} に更新'),
+    'This downloads the new release ({size}), checks it, and puts it in place of the program files. Your settings, '
+    'saves, game data and mods stay.\n\nThe launcher then restarts and rebuilds the game with the new version (a few '
+    'minutes).':
+        ('将下载新版本（{size}），校验后替换程序文件。你的设置、存档、游戏数据和 Mod 都会保留。\n\n'
+         '随后启动器会重启，并用新版本重新构建游戏（几分钟）。',
+         '新しいリリース（{size}）をダウンロードして確認し、プログラムのファイルを置き換えます。設定、セーブ、ゲームデータ、Mod は'
+         'そのまま残ります。\n\nその後ランチャーが再起動し、新しいバージョンでゲームを再ビルドします（数分）。'),
+    'Close the game first, then update.': ('请先关闭游戏再更新。', '先にゲームを閉じてから更新してください。'),
+    'Update: starting the download': ('更新：开始下载', '更新：ダウンロードを開始'),
+    'Update: downloading {done} / {total} MB': ('更新：正在下载 {done} / {total} MB', '更新：ダウンロード中 {done} / {total} MB'),
+    'Update: restarting…': ('更新：正在重启…', '更新：再起動中…'),
+    'Update stopped: {why}': ('更新已停止：{why}', '更新を中止しました：{why}'),
+    'Updated to {version}': ('已更新到 {version}', '{version} に更新しました'),
+    'Updated to {version}: rebuilding the game': ('已更新到 {version}：正在重新构建游戏', '{version} に更新しました：ゲームを再ビルド中'),
+    'The update could not copy its files: see private/update/apply.log':
+        ('更新未能复制文件：请查看 private/update/apply.log', '更新でファイルをコピーできませんでした：private/update/apply.log を確認してください'),
     'At start, ask GitHub whether a newer release is out and say so on the home screen. Nothing is downloaded or '
     'installed by itself.':
         ('启动时向 GitHub 查询是否有新版本，有的话在首页提示。不会自动下载或安装任何东西。',
